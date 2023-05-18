@@ -866,7 +866,7 @@ class Laser_mapping
         down_sample_filter.setLeafSize(m_surround_pointcloud_resolution, m_surround_pointcloud_resolution, m_surround_pointcloud_resolution);
         while (1)
         {
-            // =========== 第一步：计算待处理KF的特征 ==========
+            // =========== 第一步：计算待处理KF的特征 ========== OK
             std::this_thread::sleep_for(std::chrono::milliseconds(1));
 
             if (m_keyframe_need_precession_list.size() == 0) // no finished keyframes
