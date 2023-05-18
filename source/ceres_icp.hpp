@@ -233,7 +233,8 @@ struct ceres_icp_point2plane_mb
 };
 
 
-//point-to-line
+//point-to-line 
+// 构造损失函数
 template <typename _T>
 struct ceres_icp_point2line
 {

@@ -48,6 +48,7 @@ namespace Common_tools
         return output_set;
     };
 
+    // 防止线程数量过多，负责删减已经完成的线程
     template <typename T>
     void maintain_maximum_thread_pool(std::list<T> & thread_pool, size_t maximum_parallel_thread)
     {

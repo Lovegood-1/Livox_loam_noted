@@ -53,8 +53,7 @@ class Point_cloud_registration
   double m_para_buffer_incremental[ 7 ] = { 0, 0, 0, 1, 0, 0, 0 };
 
   Eigen::Map<Eigen::Quaterniond> m_q_w_incre = Eigen::Map<Eigen::Quaterniond>( m_para_buffer_incremental );
-  Eigen::Map<Eigen::Vector3d>    m_t_w_incre = Eigen::Map<Eigen::Vector3d>( m_para_buffer_incremental + 4 );
-
+  Eigen::Map<Eigen::Vector3d>    m_t_w_incre = Eigen::Map<Eigen::Vector3d>( m_para_buffer_incremental + 4 ); // 是一个指针表达式，它指向数组 m_para_buffer_incremental 中第五个元素的地址。
   double m_interpolatation_theta;
 
   int m_if_motion_deblur = 0 ;
@@ -160,13 +159,21 @@ class Point_cloud_registration
       return *( std::next( dis_vec.begin(), ( int ) ( ( ratio ) * dis_vec.size() ) ) );
   }
 
-  int find_out_incremental_transfrom( pcl::PointCloud< PointType >::Ptr in_laser_cloud_corner_from_map,
-                                      pcl::PointCloud< PointType >::Ptr in_laser_cloud_surf_from_map,
-                                      pcl::KdTreeFLANN< PointType > &   kdtree_corner_from_map,
-                                      pcl::KdTreeFLANN< PointType > &   kdtree_surf_from_map,
-                                      pcl::PointCloud< PointType >::Ptr laserCloudCornerStack,
-                                      pcl::PointCloud< PointType >::Ptr laserCloudSurfStack )
-  {
+
+// <1>计算位姿时(laser_mapping.hpp), 计算的是map ---> curr位姿
+// <2>loop clousre(scene_alignment.hpp)，计算的是history --->curr(TF in map)
+    int find_out_incremental_transfrom(pcl::PointCloud<PointType>::Ptr in_laser_cloud_corner_from_map, // <1>:local map corners          <2>curr finished keyframe corners(points in map)
+                                       pcl::PointCloud<PointType>::Ptr in_laser_cloud_surf_from_map,   // <1>:local map plannes          <2>curr finished keyframe plannes(points in map)
+                                       pcl::KdTreeFLANN<PointType> &kdtree_corner_from_map,            // <1>: local map corners kdtree  <2>curr finished keyframe corners kdtree
+                                       pcl::KdTreeFLANN<PointType> &kdtree_surf_from_map,              // <1>: local map plannes kdtree  <2>curr finished keyframe plannes kdtree
+                                       pcl::PointCloud<PointType>::Ptr laserCloudCornerStack,          // <1>：curr帧corners              <2>history finished keyframe corners(points in map)
+                                       pcl::PointCloud<PointType>::Ptr laserCloudSurfStack)            // <1>：curr帧plannes              <2>history finished keyframe plannes(points in map)
+    {
+    /*
+    该函数用了当前和历史的，很自然，因为当前作为输入，历史作为局部地图。
+    */
+    // 返回什么呢？修改引用变量？答：这个类方法只返回残差，但是改了对象属性 m_para_buffer_incremental
+    // 位姿（旋转和平移）增量，应该是我们要去求解的
     Eigen::Map<Eigen::Quaterniond> q_w_incre = Eigen::Map<Eigen::Quaterniond>(m_para_buffer_incremental );
     Eigen::Map<Eigen::Vector3d> t_w_incre = Eigen::Map<Eigen::Vector3d>( m_para_buffer_incremental + 4 );
 
@@ -194,13 +201,15 @@ class Point_cloud_registration
     int                    corner_rejection_num = 0;
     int                    surface_rejecetion_num = 0;
     int                    if_undistore_in_matching = 1;
-    //printf_line;
-
+ 
+    // 之后每帧的位姿都是通过与local map 匹配得到
     if ( laserCloudCornerFromMapNum > CORNER_MIN_MAP_NUM && laserCloudSurfFromMapNum > SURFACE_MIN_MAP_NUM && m_current_frame_index > m_mapping_init_accumulate_frames )
     {
-        m_timer->tic( "Build kdtree" );
+        m_timer->tic( "Build kdtree" );// ?目的就是为了建造kd-tree？
 
         *( m_logger_timer->get_ostream() ) << m_timer->toc_string( "Build kdtree" ) << std::endl;
+
+        // poses默认m_q_w_curr = I, m_t_w_curr = 0
         Eigen::Quaterniond q_last_optimize( 1.f, 0.f, 0.f, 0.f );
         Eigen::Vector3d    t_last_optimize( 0.f, 0.f, 0.f );
         int                iterCount = 0;
@@ -208,6 +217,7 @@ class Point_cloud_registration
         std::vector<int>   m_point_search_Idx;
         std::vector<float> m_point_search_sq_dis;
 
+        // 求解位姿，最大迭代次数20
         for ( iterCount = 0; iterCount < m_para_icp_max_iterations; iterCount++ )
         {
             m_point_search_Idx.clear();
@@ -217,16 +227,19 @@ class Point_cloud_registration
             corner_rejection_num = 0;
             surface_rejecetion_num = 0;
 
-            ceres::LossFunction *               loss_function = new ceres::HuberLoss( 0.1 );
-            ceres::LocalParameterization *      q_parameterization = new ceres::EigenQuaternionParameterization();
+            ceres::LossFunction *               loss_function = new ceres::HuberLoss( 0.1 ); //核函数
+            ceres::LocalParameterization *      q_parameterization = new ceres::EigenQuaternionParameterization(); // 应该就是x
             ceres::Problem::Options             problem_options;
             ceres::ResidualBlockId              block_id;
             ceres::Problem                      problem( problem_options );
             std::vector<ceres::ResidualBlockId> residual_block_ids;
 
-            problem.AddParameterBlock( m_para_buffer_incremental, 4, q_parameterization );
-            problem.AddParameterBlock( m_para_buffer_incremental + 4, 3 );
+            // 应该一个是旋转，一个是平移
+            problem.AddParameterBlock( m_para_buffer_incremental, 4, q_parameterization ); 
+            problem.AddParameterBlock( m_para_buffer_incremental + 4, 3 ); // ??为问题添加一个大小适当的参数块。具有相同参数的重复调用将被忽略。使用相同的双指针但大小不同的重复调用将导致未定义行为。
 
+            // loop clousre(scene_alignment.hpp)时：不用corners计算loop closure，只用plannes计算
+            // 1 寻找角点  2 转换到地图坐标系下 并做运动补偿  3 pointOri转换前的点，pointSel转换后的点
             for ( int i = 0; i < laser_corner_pt_num; i++ )
             {
                  if ( laser_corner_pt_num > 2 * m_maximum_allow_residual_block )
@@ -245,12 +258,15 @@ class Point_cloud_registration
                     continue;
 
                 pointAssociateToMap( &pointOri, &pointSel, refine_blur( pointOri.intensity, m_minimum_pt_time_stamp, m_maximum_pt_time_stamp ), if_undistore_in_matching );
+                // 用上一帧时刻的位姿作为初值，把当前帧下的点转化到map下。 ？上一时刻的初值？
 
                 if(m_kdtree_corner_from_map.nearestKSearch( pointSel, line_search_num, m_point_search_Idx, m_point_search_sq_dis ) != line_search_num)
                 {
                   continue;
                 }
 
+
+                // 在local map 利用 kdtree 确定找离 pointSel 最近的5个points, 距离由小到大
                 if ( m_point_search_sq_dis[ line_search_num - 1 ] < m_maximum_dis_line_for_match )
                 {
                     bool                         line_is_avail = true;
@@ -291,10 +307,14 @@ class Point_cloud_registration
                         }
                     }
 
+                    // 对这5个points组成的集合计算协方差，特征值分解，最大特征值是否是次大特征的3倍以上，
+                    // 若不是，忽略掉该点，拒绝points num++；
+                    // 若是，计算残差
+
                     Eigen::Vector3d curr_point( pointOri.x, pointOri.y, pointOri.z );
                     if ( line_is_avail )
                     {
-                        if ( ICP_LINE )
+                        if ( ICP_LINE ) //loop clousre(scene_alignment.hpp)时：0, 不用corners计算loop closure
                         {
                             ceres::CostFunction *cost_function;
                             auto                 pt_1 = pcl_pt_to_eigend( laser_cloud_corner_from_map.points[ m_point_search_Idx[ 0 ] ] );
@@ -344,7 +364,7 @@ class Point_cloud_registration
                     }
                 }
 
-                pointOri = laserCloudSurfStack->points[ i ];
+                pointOri = laserCloudSurfStack->points[ i ]; // <2>history finished keyframe plannes(points in map).loop clousre(scene_alignment.hpp)，计算的是history --->curr(TF in map)
                 int planeValid = true;
                 pointAssociateToMap( &pointOri, &pointSel, refine_blur( pointOri.intensity, m_minimum_pt_time_stamp, m_maximum_pt_time_stamp ), if_undistore_in_matching );
                 //printf_line;
@@ -460,17 +480,18 @@ class Point_cloud_registration
             ceres::Solver::Options options;
 
             // If the number of residual block too Large, randomly drop some of them to guarentee the real-time perfromance.
+            // 先让ceres迭代1次，根据结果的残差项大小，大约删除掉20%的outliers
             for ( size_t ii = 0; ii < 1; ii++ )
             {
                 options.linear_solver_type = slover_type;
                 options.max_num_iterations = m_para_cere_max_iterations;
-                options.max_num_iterations = m_para_cere_prerun_times;
+                options.max_num_iterations = m_para_cere_prerun_times; // 先让ceres迭代2次，根据结果的残差项大小，大约删除掉20%的outliers
                 options.minimizer_progress_to_stdout = false;
                 options.check_gradients = false;
                 options.gradient_check_relative_precision = 1e-10;
                 //options.function_tolerance = 1e-100; // default 1e-6
 
-                set_ceres_solver_bound( problem, m_para_buffer_incremental );
+                set_ceres_solver_bound( problem, m_para_buffer_incremental );  // 设置参数 m_t_w_incre[最小值，最大值][-2，2]
                 ceres::Solve( options, &problem, &summary );
 
                 residual_block_ids_temp.clear();
@@ -498,6 +519,8 @@ class Point_cloud_registration
                 }
                 residual_block_ids = residual_block_ids_temp;
             }
+
+            // 这里应该是第二次icp迭代
             options.linear_solver_type = slover_type;
             options.max_num_iterations = m_para_cere_max_iterations;
             options.minimizer_progress_to_stdout = false;
@@ -511,8 +534,8 @@ class Point_cloud_registration
                 compute_interpolatation_rodrigue( q_w_incre, m_interpolatation_omega, m_interpolatation_theta, m_interpolatation_omega_hat );
                 m_interpolatation_omega_hat_sq2 = m_interpolatation_omega_hat * m_interpolatation_omega_hat;
             }
-            m_t_w_curr = m_q_w_last * t_w_incre + m_t_w_last;
-            m_q_w_curr = m_q_w_last * q_w_incre;
+            m_t_w_curr = m_q_w_last * t_w_incre + m_t_w_last; // loop closure时，last=(I,0)
+            m_q_w_curr = m_q_w_last * q_w_incre;  // loop closure时, curr = incre
 
             m_angular_diff = ( float ) m_q_w_curr.angularDistance( m_q_w_last ) * 57.3;
             m_t_diff = ( m_t_w_curr - m_t_w_last ).norm();
@@ -529,7 +552,7 @@ class Point_cloud_registration
                 q_last_optimize = q_w_incre;
                 t_last_optimize = t_w_incre;
             }
-        }
+        } // end icp 计算位姿
 
         screen_printf( "===== corner factor num %d , surf factor num %d=====\n", corner_avail_num, surf_avail_num );
         if ( laser_corner_pt_num != 0 && laser_surface_pt_num != 0 )
@@ -558,6 +581,9 @@ class Point_cloud_registration
 
         m_inlier_threshold = m_inlier_threshold* summary.final_cost/ summary.initial_cost; //
 
+​        // 判断计算的位姿是否准确
+        // 1 计算位姿时:　　　　　delta_angle > 4度 　或 　最终的cost > 2.0, 　认为本次计算失败，当前帧的位姿置为上一帧的位姿
+        // 2 loop closure时:  没有通过函数的返回值是0 or 1 来判断是否对齐, 而是通过m_inlier_threshold来判断
         if ( m_angular_diff > m_para_max_angular_rate || minimize_cost > m_max_final_cost )
         {
             *( m_logger_common->get_ostream() ) << "**** Reject update **** " << endl;
@@ -619,14 +645,23 @@ class Point_cloud_registration
       hat( 2, 1 ) = angle_axis( 0 );
   };
 
-  void pointAssociateToMap( PointType const *const pi, PointType *const po,
-                            double interpolate_s = 1.0, int if_undistore = 0 )
+/**
+ * @param pi: 当前帧下点 
+ * @param po：在map下坐标
+ * @param interpolate_s 
+ * @param if_undistore : 是否进行去畸变
+ * 把点转化到map下
+ */
+  void pointAssociateToMap( PointType const *const pi, 
+                            PointType *const po,
+                            double interpolate_s = 1.0, 
+                            int if_undistore = 0 )
   {
       Eigen::Vector3d point_curr( pi->x, pi->y, pi->z );
       Eigen::Vector3d point_w;
       if ( m_if_motion_deblur == 0 || if_undistore == 0 || interpolate_s == 1.0 )
       {
-          point_w = m_q_w_curr * point_curr + m_t_w_curr;
+          point_w = m_q_w_curr * point_curr + m_t_w_curr; // 当前的点乘旋转，加平移得到地图下的坐标
       }
       else
       {

@@ -29,7 +29,7 @@ struct Pose3d
 
 struct Constraint3d
 {
-    int id_begin;
+    int id_begin;// 被约束的两个姿态的 ID
     int id_end;
 
     // The transformation that represents the pose of the end frame E w.r.t. the
@@ -39,7 +39,7 @@ struct Constraint3d
 
     // The inverse of the covariance matrix for the measurement. The order of the
     // entries are x, y, z, delta orientation.
-    Eigen::Matrix< double, 6, 6 > information;
+    Eigen::Matrix< double, 6, 6 > information;  // 这个协方差矩阵的作用？
     Constraint3d()
     {
         information.setIdentity();
@@ -364,6 +364,7 @@ void pose_graph_optimization_from_g2o_file( std::string &in_file_name )
 
 } // namespace Ceres_pose_graph_3d
 
+// 每来一次闭环，计算一次pose graph, 得到优化后的位姿， 然后计算更新后的地图
 template<typename PointType>
 class Mapping_refine
 {
@@ -434,68 +435,73 @@ class Mapping_refine
         return true;
     }
 
-    template < typename T, typename TT >
-    static std::vector< Eigen::Matrix< T, 3, 1 > > refine_pts( std::vector< Eigen::Matrix< T, 3, 1 > > &raw_pt_vec,
-                                                        const Eigen::Matrix< TT, 3, 3 > &R_mat_ori, Eigen::Matrix< TT, 3, 1 > &t_vec_ori,
-                                                        const Eigen::Matrix< TT, 3, 3 > &R_mat_opm, Eigen::Matrix< TT, 3, 1 > &t_vec_opm )
+    // 用pose graph 优化后的位姿为地图中points进行修正
+    template <typename T, typename TT>
+    static std::vector<Eigen::Matrix<T, 3, 1>> refine_pts(std::vector<Eigen::Matrix<T, 3, 1>> &raw_pt_vec,                              // finished keyframe 存放的m_accumulated_point_cloud
+                                                          const Eigen::Matrix<TT, 3, 3> &R_mat_ori, Eigen::Matrix<TT, 3, 1> &t_vec_ori, // 该finished keyframe在pose graph 优化前的位姿
+                                                          const Eigen::Matrix<TT, 3, 3> &R_mat_opm, Eigen::Matrix<TT, 3, 1> &t_vec_opm) // 该finished keyframe在pose graph 优化后的位姿
     {
-        std::vector< Eigen::Matrix< float, 3, 1 > > opm_pt_vec;
-        opm_pt_vec.resize( raw_pt_vec.size() );
-        Eigen::Matrix< T, 3, 3 > R_aff = ( R_mat_opm * R_mat_ori.transpose() ).template cast< T >();
-        Eigen::Matrix< T, 3, 1 > T_aff = ( R_aff.template cast< TT >() * ( -t_vec_ori ) + t_vec_opm ).template cast< T >();
+        std::vector<Eigen::Matrix<float, 3, 1>> opm_pt_vec;
+        opm_pt_vec.resize(raw_pt_vec.size());
+        Eigen::Matrix<T, 3, 3> R_aff = (R_mat_opm * R_mat_ori.transpose()).template cast<T>();
+        Eigen::Matrix<T, 3, 1> T_aff = (R_aff.template cast<TT>() * (-t_vec_ori) + t_vec_opm).template cast<T>();
 
-        for ( size_t i = 0; i < raw_pt_vec.size(); i++ )
+        for (size_t i = 0; i < raw_pt_vec.size(); i++)
         {
-            opm_pt_vec[ i ] = R_aff * raw_pt_vec[ i ] + T_aff;
+            opm_pt_vec[i] = R_aff * raw_pt_vec[i] + T_aff;
         }
+
         return opm_pt_vec;
     }
 
-    template<typename _PointType>
-    pcl::PointCloud< _PointType >  refine_pointcloud(  std::map<int, pcl::PointCloud< _PointType >> & map_idx_pc,
-                          Ceres_pose_graph_3d::MapOfPoses & pose3d_map_oir,
-                          Ceres_pose_graph_3d::MapOfPoses & pose3d_map_opm,
-                          int idx = 0,
-                          int if_save = 1)
+    
+    template <typename _PointType>
+    pcl::PointCloud<_PointType> refine_pointcloud(std::map<int, pcl::PointCloud<_PointType>> &map_idx_pc, // 所有finished keyframes
+                                                                                                          // key:   finished keyframe index(start from 0)
+                                                                                                          // value: finished keyframe 存放的m_accumulated_point_cloud
+                                                  Ceres_pose_graph_3d::MapOfPoses &pose3d_map_oir,        // pose graph 优化前的位姿
+                                                  Ceres_pose_graph_3d::MapOfPoses &pose3d_map_opm,        // pose graph 优化后的位姿
+                                                  int idx = 0,                                            // finished keyframe index
+                                                  int if_save = 1)
     {
-        assert( map_idx_pc.size() == pose3d_map_oir.size() );
-        assert( map_idx_pc.size() == pose3d_map_opm.size() );
-        pcl::PointCloud< _PointType > pcl_pts;
+        assert(map_idx_pc.size() == pose3d_map_oir.size());
+        assert(map_idx_pc.size() == pose3d_map_opm.size());
+        pcl::PointCloud<_PointType> pcl_pts;
         auto it = std::next(map_idx_pc.begin(), idx);
-        if(it== map_idx_pc.end())
+        if (it == map_idx_pc.end())
         {
-          return pcl_pts;
+            return pcl_pts;
         }
         else
         {
-            int                         id = it->first;
-            std::vector< Eigen::Matrix< float, 3, 1 > > pts_vec_ori, pts_vec_opm;
-            Ceres_pose_graph_3d::Pose3d pose_ori = pose3d_map_oir.find( id )->second;
-            Ceres_pose_graph_3d::Pose3d pose_opm = pose3d_map_opm.find( id )->second;
-            auto pc_in =map_idx_pc.find(id)->second.makeShared();
-            if(if_save == 0)
+            int id = it->first;
+            std::vector<Eigen::Matrix<float, 3, 1>> pts_vec_ori, pts_vec_opm;
+            Ceres_pose_graph_3d::Pose3d pose_ori = pose3d_map_oir.find(id)->second;
+            Ceres_pose_graph_3d::Pose3d pose_opm = pose3d_map_opm.find(id)->second;
+            auto pc_in = map_idx_pc.find(id)->second.makeShared();
+            if (if_save == 0)
             {
-              m_down_sample_filter.setInputCloud( pc_in );
-              m_down_sample_filter.filter( *pc_in );
+                m_down_sample_filter.setInputCloud(pc_in);
+                m_down_sample_filter.filter(*pc_in);
             }
-            pts_vec_ori = PCL_TOOLS::pcl_pts_to_eigen_pts< float, _PointType >( pc_in ) ;
+            
+            pts_vec_ori = PCL_TOOLS::pcl_pts_to_eigen_pts<float, _PointType>(pc_in);
 
-            pts_vec_opm = refine_pts( pts_vec_ori, pose_ori.q.toRotationMatrix(), pose_ori.p,
-                                      pose_opm.q.toRotationMatrix(), pose_opm.p );
-            pcl_pts = PCL_TOOLS::eigen_pt_to_pcl_pointcloud< _PointType >( pts_vec_opm );
-            if ( if_save )
+            pts_vec_opm = refine_pts(pts_vec_ori, pose_ori.q.toRotationMatrix(), pose_ori.p,
+                                     pose_opm.q.toRotationMatrix(), pose_opm.p);
+            // 用pose graph 优化后的位姿为地图中points进行修正
+            pcl_pts = PCL_TOOLS::eigen_pt_to_pcl_pointcloud<_PointType>(pts_vec_opm);
+            if (if_save)
             {
-                pts_vec_opm = PCL_TOOLS::pcl_pts_to_eigen_pts< float, _PointType >( pcl_pts.makeShared() );
-                Points_cloud_map< float > pt_cell_temp;
-                pt_cell_temp.set_resolution( 1.0 );
-                pt_cell_temp.set_point_cloud( pts_vec_opm );
-                pt_cell_temp.save_to_file( m_save_path, std::string( "/refined_" ).append( std::to_string( it->first ) ).append( ".json" ) );
+                pts_vec_opm = PCL_TOOLS::pcl_pts_to_eigen_pts<float, _PointType>(pcl_pts.makeShared());
+                Points_cloud_map<float> pt_cell_temp;
+                pt_cell_temp.set_resolution(1.0);
+                pt_cell_temp.set_point_cloud(pts_vec_opm);
+                pt_cell_temp.save_to_file(m_save_path, std::string("/refined_").append(std::to_string(it->first)).append(".json"));
                 pt_cell_temp.clear_data();
             }
 
             return pcl_pts;
-            //m_down_sample_filter.setInputCloud( m_pts_aft_refind.makeShared() );
-            //m_down_sample_filter.filter( m_pts_aft_refind );
         }
     }
 

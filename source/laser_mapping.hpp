@@ -137,8 +137,8 @@ class Laser_mapping
     double m_time_pc_surface_past = 0;
     double m_time_pc_full = 0;
     double m_time_odom = 0;
-    double m_last_time_stamp = 0;
-    double m_minimum_pt_time_stamp = 0;
+    double m_last_time_stamp = 0; // 本帧点中最大的时间戳
+    double m_minimum_pt_time_stamp = 0; // 上一帧点中最大的时间戳
     double m_maximum_pt_time_stamp = 1.0;
     float  m_last_max_blur = 0.0;
 
@@ -160,10 +160,10 @@ class Laser_mapping
 
     string m_pcd_save_dir_name, m_log_save_dir_name, m_loop_save_dir_name;
 
-    std::list<pcl::PointCloud<PointType>> m_laser_cloud_corner_history;
+    std::list<pcl::PointCloud<PointType>> m_laser_cloud_corner_history; // 算上当前帧在内，最多保留400帧 histor frames, 最top的最oldest // ? 保留400帧，是局部地图吗？是的
     std::list<pcl::PointCloud<PointType>> m_laser_cloud_surface_history;
-    std::list<pcl::PointCloud<PointType>> m_laser_cloud_full_history;
-    std::list<double>                     m_his_reg_error;
+    std::list<pcl::PointCloud<PointType>> m_laser_cloud_full_history; // 算上当前帧在内，最多保留100帧 history frames（因为会不时地被reset）
+    std::list<double>                     m_his_reg_error;     // 每一帧点云与local map匹配计算出位姿后的cost，the smaller the more certain about calculated pose.
     Eigen::Quaterniond                    m_last_his_add_q;
     Eigen::Vector3d                       m_last_his_add_t;
 
@@ -178,25 +178,25 @@ class Laser_mapping
     int m_if_mapping_updated_corner = true;
     int m_if_mapping_updated_surface = true;
 
-    pcl::PointCloud<PointType>::Ptr m_laser_cloud_corner_from_map;
-    pcl::PointCloud<PointType>::Ptr m_laser_cloud_surf_from_map;
+    pcl::PointCloud<PointType>::Ptr m_laser_cloud_corner_from_map; // local map corners
+    pcl::PointCloud<PointType>::Ptr m_laser_cloud_surf_from_map;  // local map plannes
 
     pcl::PointCloud<PointType>::Ptr m_laser_cloud_corner_from_map_last;
     pcl::PointCloud<PointType>::Ptr m_laser_cloud_surf_from_map_last;
 
     //input & output: points in one frame. local --> global
-    pcl::PointCloud<PointType>::Ptr m_laser_cloud_full_res;
+    pcl::PointCloud<PointType>::Ptr m_laser_cloud_full_res; // 当前帧全部点云
 
     // input: from odom
-    pcl::PointCloud<PointType>::Ptr m_laser_cloud_corner_last;
-    pcl::PointCloud<PointType>::Ptr m_laser_cloud_surf_last;
+    pcl::PointCloud<PointType>::Ptr m_laser_cloud_corner_last; // 当前帧corners点云
+    pcl::PointCloud<PointType>::Ptr m_laser_cloud_surf_last;    // 当前帧plannes点云
 
     //kd-tree
-    pcl::KdTreeFLANN<PointType> m_kdtree_corner_from_map;
+    pcl::KdTreeFLANN<PointType> m_kdtree_corner_from_map; // 没用到
     pcl::KdTreeFLANN<PointType> m_kdtree_surf_from_map;
 
-    pcl::KdTreeFLANN<PointType> m_kdtree_corner_from_map_last;
-    pcl::KdTreeFLANN<PointType> m_kdtree_surf_from_map_last;
+    pcl::KdTreeFLANN<PointType> m_kdtree_corner_from_map_last; // local_map_kdtree_corners
+    pcl::KdTreeFLANN<PointType> m_kdtree_surf_from_map_last;   // local_map_kdtree_plannes
 
     int m_laser_cloud_valid_Idx[ 1024 ];
     int m_laser_cloud_surround_Idx[ 1024 ];
@@ -204,16 +204,16 @@ class Laser_mapping
     const Eigen::Quaterniond m_q_I = Eigen::Quaterniond( 1, 0, 0, 0 );
 
     double m_para_buffer_RT[ 7 ] = { 0, 0, 0, 1, 0, 0, 0 };
-    double m_para_buffer_RT_last[ 7 ] = { 0, 0, 0, 1, 0, 0, 0 };
+    double m_para_buffer_RT_last[ 7 ] = { 0, 0, 0, 1, 0, 0, 0 };  // ？ buffer 是什么
 
-    Eigen::Map<Eigen::Quaterniond> m_q_w_curr = Eigen::Map<Eigen::Quaterniond>( m_para_buffer_RT );
+    Eigen::Map<Eigen::Quaterniond> m_q_w_curr = Eigen::Map<Eigen::Quaterniond>( m_para_buffer_RT ); // 当前帧在map下位姿
     Eigen::Map<Eigen::Vector3d>    m_t_w_curr = Eigen::Map<Eigen::Vector3d>( m_para_buffer_RT + 4 );
 
-    Eigen::Map<Eigen::Quaterniond> m_q_w_last = Eigen::Map<Eigen::Quaterniond>( m_para_buffer_RT_last );
+    Eigen::Map<Eigen::Quaterniond> m_q_w_last = Eigen::Map<Eigen::Quaterniond>( m_para_buffer_RT_last ); // 上一帧在map下位姿
     Eigen::Map<Eigen::Vector3d>    m_t_w_last = Eigen::Map<Eigen::Vector3d>( m_para_buffer_RT_last + 4 );
 
-    std::map<double, Data_pair *> m_map_data_pair;
-    std::queue<Data_pair *> m_queue_avail_data;
+    std::map<double, Data_pair *> m_map_data_pair; // <时间戳, laser_data>
+    std::queue<Data_pair *> m_queue_avail_data;   // 时间戳小的排在前, 最多保持 maximum_mapping_buffer帧laser
 
     std::queue<nav_msgs::Odometry::ConstPtr> m_odom_que;
     std::mutex                               m_mutex_buf;
@@ -248,7 +248,7 @@ class Laser_mapping
 
     ceres::Solver::Summary m_final_opt_summary;
     //std::list<std::thread* > m_thread_pool;
-    std::list<std::future<int> *>  m_thread_pool;
+    std::list<std::future<int> *>  m_thread_pool; // 队列；获取线程结果
     std::list<std::future<void> *> m_thread_match_buff_refresh;
 
     double m_maximum_in_fov_angle;
@@ -260,7 +260,7 @@ class Laser_mapping
     double m_lastest_pc_matching_refresh_time = -3e8;
     double m_lastest_pc_income_time = -3e8;
 
-    std::mutex m_mutex_mapping;
+    std::mutex m_mutex_mapping;    
     std::mutex m_mutex_querypointcloud;
     std::mutex m_mutex_buff_for_matching_corner;
     std::mutex m_mutex_buff_for_matching_surface;
@@ -270,9 +270,9 @@ class Laser_mapping
     std::mutex m_mutex_keyframe;
 
     float                   m_pt_cell_resolution = 1.0;
-    Points_cloud_map<float> m_pt_cell_map_full;
-    Points_cloud_map<float> m_pt_cell_map_corners;
-    Points_cloud_map<float> m_pt_cell_map_planes;
+    Points_cloud_map<float> m_pt_cell_map_full;     // 全部帧corners+plannes在map下坐标，应该显示的是这个
+    Points_cloud_map<float> m_pt_cell_map_corners;  // 全部帧corners在map下坐标
+    Points_cloud_map<float> m_pt_cell_map_planes;   // 全部帧plannes在map下坐标
 
     int                m_down_sample_replace = 1;
     ros::Publisher     m_pub_last_corner_pts, m_pub_last_surface_pts;
@@ -301,12 +301,14 @@ class Laser_mapping
 
     // ANCHOR keyframe define
     //std::shared_ptr<Maps_keyframe<float>>            m_current_keyframe;
-    std::list<std::shared_ptr<Maps_keyframe<float>>> m_keyframe_of_updating_list;
-    std::list<std::shared_ptr<Maps_keyframe<float>>> m_keyframe_need_precession_list;
+    std::list<std::shared_ptr<Maps_keyframe<float>>> m_keyframe_of_updating_list;   // 还没有累积够300帧的keyframes
+    std::list<std::shared_ptr<Maps_keyframe<float>>> m_keyframe_need_precession_list; // 保存累积了300帧的所有keyframes
+
 
     Scene_alignment<float>                           m_scene_align;
     ADD_SCREEN_PRINTF_OUT_METHOD;
 
+    // 判断点是否在视野内
     int if_pt_in_fov( const Eigen::Matrix<double, 3, 1> &pt )
     {
 
@@ -322,7 +324,7 @@ class Laser_mapping
         else
             return 0;
     }
-
+    //   没用
     void service_update_buff_for_matching_surface()
     {
         pcl::VoxelGrid<PointType> down_sample_filter_surface = m_down_sample_filter_surface;
@@ -388,75 +390,10 @@ class Laser_mapping
             }
         }
     }
-
-    void service_update_buff_for_matching_corner()
-    {
-        pcl::VoxelGrid<PointType> down_sample_filter_corner = m_down_sample_filter_corner;
-
-        while ( 1 )
-        {
-            if ( m_if_mapping_updated_corner == false )
-            {
-                std::this_thread::sleep_for( std::chrono::nanoseconds( 100 ) );
-                continue;
-            }
-            else
-            {
-                pcl::PointCloud<PointType>::Ptr laser_cloud_corner_from_map( new pcl::PointCloud<PointType>() );
-                if ( m_matching_mode )
-                {
-                    pcl::VoxelGrid<PointType>                              down_sample_filter_corner = m_down_sample_filter_corner;
-                    std::vector<Points_cloud_map<float>::Mapping_cell_ptr> corner_cell_vec = m_pt_cell_map_corners.find_cells_in_radius( m_t_w_curr, m_maximum_search_range_corner );
-                    int                                                    corner_cell_numbers_full = corner_cell_vec.size();
-                    int                                                    corner_cell_numbers_in_fov = 0;
-
-                    pcl::PointCloud<PointType> pc_temp;
-
-                    for ( size_t i = 0; i < corner_cell_vec.size(); i++ )
-                    {
-                        //*laser_cloud_corner_from_map +=  PCL_TOOLS::eigen_pt_to_pcl_pointcloud<PointType>( corner_cell_vec[i]->m_points_vec );
-                        int if_in_fov = if_pt_in_fov( corner_cell_vec[ i ]->m_center.cast<double>() );
-                        if ( if_in_fov == 0 )
-                        {
-                            continue;
-                        }
-                        corner_cell_numbers_in_fov++;
-                        down_sample_filter_corner.setInputCloud( corner_cell_vec[ i ]->m_pcl_pc_vec.makeShared() );
-                        down_sample_filter_corner.filter( pc_temp );
-                        if ( m_down_sample_replace )
-                        {
-                            corner_cell_vec[ i ]->set_pointcloud( pc_temp );
-                        }
-                        *laser_cloud_corner_from_map += pc_temp;
-                    }
-
-                    screen_printf( "==== Ratio of corner in fovs %.2f ====\r\n", ( float ) corner_cell_numbers_in_fov / corner_cell_numbers_full );
-                }
-                else
-                {
-                    for ( auto it = m_laser_cloud_corner_history.begin(); it != m_laser_cloud_corner_history.end(); it++ )
-                    {
-                        *laser_cloud_corner_from_map += ( *it );
-                    }
-                }
-
-                down_sample_filter_corner.setInputCloud( laser_cloud_corner_from_map );
-                down_sample_filter_corner.filter( *laser_cloud_corner_from_map );
-
-                if ( laser_cloud_corner_from_map->points.size() )
-                {
-                    m_kdtree_corner_from_map.setInputCloud( laser_cloud_corner_from_map );
-                }
-
-                m_if_mapping_updated_corner = false;
-                m_mutex_buff_for_matching_corner.lock();
-                *m_laser_cloud_corner_from_map_last = *laser_cloud_corner_from_map;
-                m_kdtree_corner_from_map_last = m_kdtree_corner_from_map;
-                m_mutex_buff_for_matching_corner.unlock();
-            }
-        }
-    }
-
+ 
+    // 不断更新local map corners对应的kdtree_corners, local map plannes对应的kdtree_plannes
+    // matching_mode = 0：用history数据,构建local map corners/plannes0
+    // matching_mode = 1: 在整个corners map中找离上一帧位置(x, y, z) 100m以内的所有points构建
     void update_buff_for_matching()
     {
         if ( m_lastest_pc_matching_refresh_time == m_lastest_pc_reg_time )
@@ -466,15 +403,17 @@ class Laser_mapping
         pcl::VoxelGrid<PointType> down_sample_filter_surface = m_down_sample_filter_surface;
         down_sample_filter_corner.setLeafSize( m_line_resolution, m_line_resolution, m_line_resolution );
         down_sample_filter_surface.setLeafSize( m_plane_resolution, m_plane_resolution, m_plane_resolution );
-        pcl::PointCloud<PointType>::Ptr laser_cloud_corner_from_map( new pcl::PointCloud<PointType>() );
-        pcl::PointCloud<PointType>::Ptr laser_cloud_surf_from_map( new pcl::PointCloud<PointType>() );
-        if ( m_matching_mode )
+        pcl::PointCloud<PointType>::Ptr laser_cloud_corner_from_map( new pcl::PointCloud<PointType>() );  // local map corners
+        pcl::PointCloud<PointType>::Ptr laser_cloud_surf_from_map( new pcl::PointCloud<PointType>() );  // local map plannes
+        if ( m_matching_mode ) // 1 
         {
             pcl::VoxelGrid<PointType>                              down_sample_filter_corner = m_down_sample_filter_corner;
             pcl::VoxelGrid<PointType>                              down_sample_filter_surface = m_down_sample_filter_surface;
             std::vector<Points_cloud_map<float>::Mapping_cell_ptr> corner_cell_vec = m_pt_cell_map_corners.find_cells_in_radius( m_t_w_curr, m_maximum_search_range_corner );
             std::vector<Points_cloud_map<float>::Mapping_cell_ptr> plane_cell_vec = m_pt_cell_map_planes.find_cells_in_radius( m_t_w_curr, m_maximum_search_range_surface );
-       
+            // 当matching_mode = 1时，在整个corners map中找离上一帧位置(x, y, z) 100m以内的所有points所在的cells地址，构建local map corners
+            // 同理，local map plannes
+
             int                        corner_cell_numbers_in_fov = 0;
             int                        surface_cell_numbers_in_fov = 0;
             pcl::PointCloud<PointType> pc_temp;
@@ -514,7 +453,7 @@ class Laser_mapping
                 *laser_cloud_surf_from_map += pc_temp;
             }
         }
-        else
+        else // 用算上当前帧在内，最多保留y400帧 history frames(最top的最oldest), 建立local map corners(kdtree_corners), local map plannes(kdtree_plannes)
         {
             m_mutex_mapping.lock();
             for ( auto it = m_laser_cloud_corner_history.begin(); it != m_laser_cloud_corner_history.end(); it++ )
@@ -577,7 +516,7 @@ class Laser_mapping
 
     Laser_mapping()
     {
-
+        // 初始化点云类型
         m_laser_cloud_corner_last = pcl::PointCloud<PointType>::Ptr( new pcl::PointCloud<PointType>() );
         m_laser_cloud_surf_last = pcl::PointCloud<PointType>::Ptr( new pcl::PointCloud<PointType>() );
         m_laser_cloud_surround = pcl::PointCloud<PointType>::Ptr( new pcl::PointCloud<PointType>() );
@@ -592,28 +531,38 @@ class Laser_mapping
 
         init_parameters( m_ros_node_handle );
 
-        //livox_corners
+        //  输入点云。 livox_corners 每帧的corners, plannes, corners + plannes
         m_sub_laser_cloud_corner_last = m_ros_node_handle.subscribe<sensor_msgs::PointCloud2>( "/pc2_corners", 10000, &Laser_mapping::laserCloudCornerLastHandler, this );
         m_sub_laser_cloud_surf_last = m_ros_node_handle.subscribe<sensor_msgs::PointCloud2>( "/pc2_surface", 10000, &Laser_mapping::laserCloudSurfLastHandler, this );
         m_sub_laser_cloud_full_res = m_ros_node_handle.subscribe<sensor_msgs::PointCloud2>( "/pc2_full", 10000, &Laser_mapping::laserCloudFullResHandler, this );
 
+        // 每隔100帧发布当前帧周围1000m范围内降采样后的points  ? 这些变量之间有什么关系？
         m_pub_laser_cloud_surround = m_ros_node_handle.advertise<sensor_msgs::PointCloud2>( "/laser_cloud_surround", 10000 );
 
+        // 准备发布每一帧corners在map下的points，pose graph 更新前的地图
         m_pub_last_corner_pts = m_ros_node_handle.advertise<sensor_msgs::PointCloud2>( "/features_corners", 10000 );
-        m_pub_last_surface_pts = m_ros_node_handle.advertise<sensor_msgs::PointCloud2>( "/features_surface", 10000 );
+        m_pub_last_surface_pts = m_ros_node_handle.advertise<sensor_msgs::PointCloud2>( "/features_surface", 10000 ); // 每一帧plannes在map下的points，pose graph 更新前的地图
 
-        m_pub_match_corner_pts = m_ros_node_handle.advertise<sensor_msgs::PointCloud2>( "/match_pc_corners", 10000 );
-        m_pub_match_surface_pts = m_ros_node_handle.advertise<sensor_msgs::PointCloud2>( "/match_pc_surface", 10000 );
-        m_pub_pc_aft_loop = m_ros_node_handle.advertise<sensor_msgs::PointCloud2>( "/pc_aft_loop_closure", 10000 );
-        m_pub_debug_pts = m_ros_node_handle.advertise<sensor_msgs::PointCloud2>( "/pc_debug", 10000 );
+        
+        m_pub_match_corner_pts = m_ros_node_handle.advertise<sensor_msgs::PointCloud2>( "/match_pc_corners", 10000 ); // local map corners
+        m_pub_match_surface_pts = m_ros_node_handle.advertise<sensor_msgs::PointCloud2>( "/match_pc_surface", 10000 ); // local map plannes
+        m_pub_pc_aft_loop = m_ros_node_handle.advertise<sensor_msgs::PointCloud2>( "/pc_aft_loop_closure", 10000 ); // 每有一次闭环用pose graph更新后的poses，对地图的各个小部分进行更新，也就是重新计算在map下的points
+        m_pub_debug_pts = m_ros_node_handle.advertise<sensor_msgs::PointCloud2>( "/pc_debug", 10000 ); // topic上的数据为空
 
+        // 没用到
         m_pub_laser_cloud_map = m_ros_node_handle.advertise<sensor_msgs::PointCloud2>( "/laser_cloud_map", 10000 );
         m_pub_laser_cloud_full_res = m_ros_node_handle.advertise<sensor_msgs::PointCloud2>( "/velodyne_cloud_registered", 10000 );
+
+        // 每一帧corners + plannes 在map下的points, pose graph 更新前的地图
         m_pub_odom_aft_mapped = m_ros_node_handle.advertise<nav_msgs::Odometry>( "/aft_mapped_to_init", 10000 );
+        // 与local map 匹配得到的每帧的位姿
+        // 没用到
         m_pub_odom_aft_mapped_hight_frec = m_ros_node_handle.advertise<nav_msgs::Odometry>( "/aft_mapped_to_init_high_frec", 10000 );
+        // 每隔10帧发布全部与local map 匹配得到的每帧的位姿
         m_pub_laser_aft_mapped_path = m_ros_node_handle.advertise<nav_msgs::Path>( "/aft_mapped_path", 10000 );
         m_pub_laser_aft_loopclosure_path = m_ros_node_handle.advertise<nav_msgs::Path>( "/aft_loopclosure_path", 10000 );
-        
+        // 每有一次闭环就会计算一次pose graph， 然后把计算后的位姿发布到该topic
+
         m_pt_cell_map_full.set_resolution( m_pt_cell_resolution );
         m_pt_cell_map_full.m_minimum_revisit_threshold = m_para_threshold_cell_revisit;
 
@@ -623,7 +572,7 @@ class Laser_mapping
         m_pt_cell_map_planes.set_resolution( m_pt_cell_resolution );
         m_pt_cell_map_planes.m_minimum_revisit_threshold = m_para_threshold_cell_revisit;
 
-        m_keyframe_of_updating_list.push_back( std::make_shared<Maps_keyframe<float>>() );
+        m_keyframe_of_updating_list.push_back( std::make_shared<Maps_keyframe<float>>() ); // 带处理KF容器中加入一个KF
         //m_current_keyframe = std::make_shared<Maps_keyframe<float>>();
         screen_out << "Laser_mapping init OK" << endl;
     };
@@ -746,6 +695,7 @@ class Laser_mapping
         m_filter_k_means.setStddevMulThresh( m_kmean_filter_threshold );
     }
 
+    // 把三个回调函数中的laser_data合并起来，压入到 m_queue_avail_data
     void laserCloudCornerLastHandler( const sensor_msgs::PointCloud2ConstPtr &laserCloudCornerLast2 )
     {
         std::unique_lock<std::mutex> lock( m_mutex_buf );
@@ -870,156 +820,184 @@ class Laser_mapping
         m_pub_laser_aft_loopclosure_path.publish( m_laser_after_loopclosure_path );
     }
 
-    //ANCHOR loop_detection
+ 
+    // loop_detection
+    // 线程，不断地检测是否有闭环，有闭环后进行对齐，然后进行pose graph更新每个finished keyframe位姿，更新地图发布到 "/pc_aft_loop_closure" 上
     void service_loop_detection()
     {
-        int last_update_index = 0;
+        int last_update_index = 0; // 没用到
 
-        sensor_msgs::PointCloud2                           ros_laser_cloud_surround;
-        pcl::PointCloud<PointType>                         pt_full;
-        Eigen::Quaterniond                                 q_curr;
-        Eigen::Vector3d                                    t_curr;
-        std::list<double>                                  reg_error_his;
-        std::string                                        json_file_name;
-        int                                                curren_frame_idx;
-        std::vector<std::shared_ptr<Maps_keyframe<float>>> keyframe_vec;
-        Mapping_refine<PointType>                          map_rfn;
-        std::vector<std::string>                           m_filename_vec;
+        sensor_msgs::PointCloud2 ros_laser_cloud_surround;
+        pcl::PointCloud<PointType> pt_full; // 好像始终为空
+        Eigen::Quaterniond q_curr;
+        Eigen::Vector3d t_curr;
+        std::list<double> reg_error_his;
+        std::string json_file_name;
+        int curren_frame_idx;
+        std::vector<std::shared_ptr<Maps_keyframe<float>>> keyframe_vec; // 存放所有的finished keyframes
+        Mapping_refine<PointType> map_rfn;
+        std::vector<std::string> m_filename_vec;
 
-        std::map<int, std::string>               map_file_name;
-        Ceres_pose_graph_3d::MapOfPoses          pose3d_map, pose3d_map_ori;
-        Ceres_pose_graph_3d::VectorOfPose        pose3d_vec;
-        Ceres_pose_graph_3d::VectorOfConstraints constrain_vec;
+        std::map<int, std::string> map_file_name;
+        Ceres_pose_graph_3d::MapOfPoses pose3d_map, pose3d_map_ori;
+        Ceres_pose_graph_3d::VectorOfPose pose3d_vec;           // pose3d_vec[i]: i号finished keyframe位姿
+        Ceres_pose_graph_3d::VectorOfConstraints constrain_vec; // 相邻两个finished keyframe间的约束(0-->1, 1-->2, 2-->3...)
 
         float avail_ratio_plane = 0.05; // 0.05 for 300 scans, 0.15 for 1000 scans
         float avail_ratio_line = 0.03;
-        m_scene_align.init( m_loop_save_dir_name );
+        m_scene_align.init(m_loop_save_dir_name);
         m_scene_align.m_accepted_threshold = m_loop_closure_map_alignment_inlier_threshold;
         m_scene_align.m_maximum_icp_iteration = m_loop_closure_map_alignment_maximum_icp_iteration;
         // scene_align. =  m_
         PCL_TOOLS::PCL_point_cloud_to_pcd pcd_saver;
-        pcd_saver.set_save_dir_name( std::string( m_loop_save_dir_name ).append( "/pcd" ) );
-        map_rfn.set_save_dir( std::string( m_loop_save_dir_name ).append( "/mapping_refined" ) );
-        map_rfn.set_down_sample_resolution( 0.2 );
-        
-        std::map<int, pcl::PointCloud<PointType>> map_id_pc;
-        int                                       if_end = 0;
-        pcl::VoxelGrid<PointType>                 down_sample_filter;
-                
+        pcd_saver.set_save_dir_name(std::string(m_loop_save_dir_name).append("/pcd"));
+        map_rfn.set_save_dir(std::string(m_loop_save_dir_name).append("/mapping_refined"));
+        map_rfn.set_down_sample_resolution(0.2);
+
+        std::map<int, pcl::PointCloud<PointType>> map_id_pc; // 所有finished keyframes
+        // key:   finished keyframe index(start from 0)
+        // value: finished keyframe 存放的m_accumulated_point_cloud
+        int if_end = 0;
+        pcl::VoxelGrid<PointType> down_sample_filter;
+
         m_logger_loop_closure.set_log_dir(m_log_save_dir_name);
-        m_logger_loop_closure.init( "loop_closure.log" );
+        m_logger_loop_closure.init("loop_closure.log");
 
-        down_sample_filter.setLeafSize( m_surround_pointcloud_resolution, m_surround_pointcloud_resolution, m_surround_pointcloud_resolution );
-        while ( 1 )
+        down_sample_filter.setLeafSize(m_surround_pointcloud_resolution, m_surround_pointcloud_resolution, m_surround_pointcloud_resolution);
+        while (1)
         {
+            // =========== 第一步：计算待处理KF的特征 ==========
+            std::this_thread::sleep_for(std::chrono::milliseconds(1));
 
-            std::this_thread::sleep_for( std::chrono::milliseconds( 1 ) );
-            //m_mutex_dump_full_history.lock();
-
-            if ( m_keyframe_need_precession_list.size() == 0 )
+            if (m_keyframe_need_precession_list.size() == 0) // no finished keyframes
             {
                 continue;
             }
-            
-            m_timer.tic( "New keyframe" );
+
+            m_timer.tic("New keyframe");
             q_curr = m_keyframe_need_precession_list.front()->m_pose_q;
-            t_curr = m_keyframe_need_precession_list.front()->m_pose_t;
-            // q_curr = m_q_w_curr;
-            // t_curr = m_t_w_curr;
+            t_curr = m_keyframe_need_precession_list.front()->m_pose_t; // 当前finished keyframe 位姿
             reg_error_his = m_his_reg_error;
 
-            m_keyframe_need_precession_list.front()->update_features_of_each_cells();
-            m_keyframe_need_precession_list.front()->analyze();
+            m_keyframe_need_precession_list.front()->update_features_of_each_cells(); // 计算每个cell的feature type
+            m_keyframe_need_precession_list.front()->analyze();                       // 计算finished keyframe对应的line，planne histograms
 
-            keyframe_vec.push_back( m_keyframe_need_precession_list.front() );
+            keyframe_vec.push_back(m_keyframe_need_precession_list.front()); // 当前finished keyframe压入keyframe_vec
             m_mutex_keyframe.lock();
             m_keyframe_need_precession_list.pop_front();
             m_mutex_keyframe.unlock();
+            // ====================================
 
+            // ===================== 2  把KF添加到位姿图中 ====================
+            // 2.1 对刚刚算好KF的下采样
             curren_frame_idx = keyframe_vec.back()->m_ending_frame_idx;
-
-            if ( 1 )
+            if (1)
             {
-                down_sample_filter.setInputCloud( keyframe_vec.back()->m_accumulated_point_cloud.makeShared() );
-                down_sample_filter.filter( keyframe_vec.back()->m_accumulated_point_cloud );
+                down_sample_filter.setInputCloud(  keyframe_vec.back()->m_accumulated_point_cloud.makeShared());
+                down_sample_filter.filter(keyframe_vec.back()->m_accumulated_point_cloud);
             }
-            map_id_pc.insert( std::make_pair( map_id_pc.size(), keyframe_vec.back()->m_accumulated_point_cloud ) );
 
-            pose3d_vec.push_back( Ceres_pose_graph_3d::Pose3d( q_curr, t_curr ) );
-            pose3d_map.insert( std::make_pair( pose3d_map.size(), Ceres_pose_graph_3d::Pose3d( q_curr, t_curr ) ) );
-            
-            if ( pose3d_vec.size() >= 2 )
+            // key:   finished keyframe index(start from 0)
+            // value: finished keyframe 存放的m_accumulated_point_cloud 
+            // 2.2 将最后一个 KF 的点云数据插入到一个保存了所有已完成KF点云数据的容器中 ,在后续的操作中用来构建局部地图。           
+            map_id_pc.insert(std::make_pair(map_id_pc.size(), keyframe_vec.back()->m_accumulated_point_cloud));
+
+            // 2.3 建立位姿图对象
+            pose3d_vec.push_back(Ceres_pose_graph_3d::Pose3d(q_curr, t_curr)); // 压入当前finished keyframe 位姿
+            // pose3d_vec[i]: i号finished keyframe位姿
+            pose3d_map.insert(std::make_pair(pose3d_map.size(), Ceres_pose_graph_3d::Pose3d(q_curr, t_curr)));
+            // key:   finished keyframe index(start from 0)
+            // value: finished keyframe 位姿
+
+            // 2.4 建立约束对象
+            if (pose3d_vec.size() >= 2) // 已经压入了2个以上finished keyframes
             {
                 Ceres_pose_graph_3d::Constraint3d temp_csn;
-                Eigen::Vector3d                   relative_T = pose3d_vec[ pose3d_vec.size() - 2 ].q.inverse() * ( t_curr - pose3d_vec[ pose3d_vec.size() - 2 ].p );
-                Eigen::Quaterniond                relative_Q = pose3d_vec[ pose3d_vec.size() - 2 ].q.inverse() * q_curr;
-                
-                temp_csn = Ceres_pose_graph_3d::Constraint3d( pose3d_vec.size() - 2, pose3d_vec.size() - 1,
-                                                              relative_Q, relative_T );
-                constrain_vec.push_back( temp_csn );
+                Eigen::Vector3d relative_T = pose3d_vec[pose3d_vec.size() - 2].q.inverse() * (t_curr - pose3d_vec[pose3d_vec.size() - 2].p);
+                Eigen::Quaterniond relative_Q = pose3d_vec[pose3d_vec.size() - 2].q.inverse() * q_curr;
+                // 从last finished keyframe 到 curr finished keyframe的delta_r,delta_t
+
+                temp_csn = Ceres_pose_graph_3d::Constraint3d(pose3d_vec.size() - 2, pose3d_vec.size() - 1,
+                                                             relative_Q, relative_T);
+                constrain_vec.push_back(temp_csn);
             }
-            
-            // Save pose
-            json_file_name = std::string( m_loop_save_dir_name ).append( "/pose_" ).append( std::to_string( curren_frame_idx ) ).append( ".json" );
-            dump_pose_and_regerror( json_file_name, q_curr, t_curr, reg_error_his );
+
+            // Save pose，可以不用写到disk中
+            json_file_name = std::string(m_loop_save_dir_name).append("/pose_").append(std::to_string(curren_frame_idx)).append(".json");
+            dump_pose_and_regerror(json_file_name, q_curr, t_curr, reg_error_his);
             last_update_index = m_current_frame_index;
-            m_timer.tic( "Find loop" );
+            m_timer.tic("Find loop");
 
-            std::shared_ptr<Maps_keyframe<float>> last_keyframe = keyframe_vec.back();
-            float                                 ratio_non_zero_plane = last_keyframe->m_ratio_nonzero_plane;
-            float                                 ratio_non_zero_line = last_keyframe->m_ratio_nonzero_line;
+            std::shared_ptr<Maps_keyframe<float>> last_keyframe = keyframe_vec.back(); // 当前finished keyframe
+            float ratio_non_zero_plane = last_keyframe->m_ratio_nonzero_plane;         // 没用到
+            float ratio_non_zero_line = last_keyframe->m_ratio_nonzero_line;           // 没用到
 
-            if ( m_loop_closure_if_dump_keyframe_data ) // Dump points cloud data
+            if (m_loop_closure_if_dump_keyframe_data) // Dump points cloud data
             {
-                json_file_name = std::string( "keyframe_" ).append( std::to_string( curren_frame_idx ) ).append( ".json" );
-                last_keyframe->save_to_file( std::string( m_loop_save_dir_name ), json_file_name ); // Save keyframe data
-                pcd_saver.save_to_pcd_files( "pcd", pt_full, curren_frame_idx );                    // Save to pcd files
+                json_file_name = std::string("keyframe_").append(std::to_string(curren_frame_idx)).append(".json");
+                last_keyframe->save_to_file(std::string(m_loop_save_dir_name), json_file_name); // Save keyframe data
+                pcd_saver.save_to_pcd_files("pcd", pt_full, curren_frame_idx);                  // Save to pcd files
             }
 
-            map_file_name.insert( std::make_pair( map_file_name.size(), std::string( m_loop_save_dir_name ).append( "/" ).append( json_file_name ) ) );
-            m_filename_vec.push_back( std::string( m_loop_save_dir_name ).append( "/" ).append( json_file_name ) );
-            float sim_plane_res_cv = 0, sim_plane_res = 0;
-            float sim_line_res_cv = 0, sim_line_res = 0;
+            map_file_name.insert(std::make_pair(map_file_name.size(), std::string(m_loop_save_dir_name).append("/").append(json_file_name)));
+            m_filename_vec.push_back(std::string(m_loop_save_dir_name).append("/").append(json_file_name));
+            float sim_plane_res_cv = 0, sim_plane_res = 0; 
+            float sim_line_res_cv = 0, sim_line_res = 0;   // 当前finished keyframe与某一个history finished history planne cells相似度，line cells相似度
             float sim_plane_res_roi = 0, sim_line_res_roi = 0;
 
-            m_logger_loop_closure.printf( "--- Current_idx = %d, lidar_frame_idx = %d ---\r\n", keyframe_vec.size(), curren_frame_idx );
-            m_logger_loop_closure.printf( "%s", last_keyframe->get_frame_info().c_str() );
+            m_logger_loop_closure.printf("--- Current_idx = %d, lidar_frame_idx = %d ---\r\n", keyframe_vec.size(), curren_frame_idx);
+            m_logger_loop_closure.printf("%s", last_keyframe->get_frame_info().c_str());
+            // ===========================================================
 
-            for ( size_t his = 0; his < keyframe_vec.size() - 1; his++ )
+            /*
+            =================  3  尝试将当前关键帧与过去的关键帧进行匹配，查看是否存在闭环。 ========================
+            
+            闭环匹配过程涉及比较两个关键帧的线性和平面直方图。如果相似度分数通过一定的阈值，则运行ICP算法以找到两个关键帧之间的转换。如果内点计数低于一定的阈值，则匹配被认为是真正的闭环，并运行姿态图优化以更新关键帧的姿态并插入新边。    
+            */ 
+            for (size_t his = 0; his < keyframe_vec.size() - 1; his++) // iterative all history finished keyframes
             {
-                if ( if_end )
+                if (if_end)
                 {
                     break;
                 }
-                if ( keyframe_vec.size() - his < ( size_t ) m_loop_closure_minimum_keyframe_differen )
-                {
-                    continue;
-                }
-                float ratio_non_zero_plane_his = keyframe_vec[ his ]->m_ratio_nonzero_plane;
-                float ratio_non_zero_line_his = keyframe_vec[ his ]->m_ratio_nonzero_line;
-
-                if ( ( ratio_non_zero_plane_his < avail_ratio_plane ) && ( ratio_non_zero_line_his < avail_ratio_line ) )
-                    continue;
-
-                if ( abs( keyframe_vec[ his ]->m_roi_range - last_keyframe->m_roi_range ) > 5.0 )
+                if (keyframe_vec.size() - his < (size_t)m_loop_closure_minimum_keyframe_differen) // 200
                 {
                     continue;
                 }
 
-                sim_plane_res = last_keyframe->max_similiarity_of_two_image( last_keyframe->m_feature_img_plane, keyframe_vec[ his ]->m_feature_img_plane );
-                sim_line_res = last_keyframe->max_similiarity_of_two_image( last_keyframe->m_feature_img_line, keyframe_vec[ his ]->m_feature_img_line );
-                
-                if ( ( ( sim_line_res > m_loop_closure_minimum_similarity_linear ) && ( sim_plane_res > 0.92 ) ) ||
-                     ( sim_plane_res > m_loop_closure_minimum_similarity_planar ) )
+                // keyframe_vec 已经压入了200帧以上， 当前keyframe与距自己200帧以上的每个history keyframes逐一作比较
+                float ratio_non_zero_plane_his = keyframe_vec[his]->m_ratio_nonzero_plane;
+                float ratio_non_zero_line_his = keyframe_vec[his]->m_ratio_nonzero_line;
+
+                if ((ratio_non_zero_plane_his < avail_ratio_plane) && (ratio_non_zero_line_his < avail_ratio_line)) // history line_cells, planne_cells直方图非零率太低，略过该关键帧
+                    continue;
+
+                // 两个finished keyframe 中心点超过5m，认为不存在闭环
+                if (abs(keyframe_vec[his]->m_roi_range - last_keyframe->m_roi_range) > 5.0)
                 {
-                    if ( 0 ) // Enable check in roi
+                    continue;
+                }
+
+                // 匹配的前提条件：
+                // 条件1： history keyframes index距离自己当前index >= 200 才比较
+                // 条件2： history finished keyframe 的line_cells, planne_cells直方图非零率太低(line < 3 % &&planne < 5 %) ，略过该关键帧
+                // 条件3： 两个finished keyframe 中心点不能超过5m，否则，认为不存在闭环
+                // 条件4： 相似性条件： line_simi > 0.65 && planne_simi > 0.92 或者 planne_simi > 0.94
+                sim_plane_res = last_keyframe->max_similiarity_of_two_image(last_keyframe->m_feature_img_plane, keyframe_vec[his]->m_feature_img_plane);
+                sim_line_res = last_keyframe->max_similiarity_of_two_image(last_keyframe->m_feature_img_line, keyframe_vec[his]->m_feature_img_line);
+                // 计算当前finished keyframe与某一个history[i] finished keyframe的 planne_cells_histograms相似性, line_cells_histograms相似性
+
+                if (((sim_line_res > m_loop_closure_minimum_similarity_linear) && (sim_plane_res > 0.92)) ||
+                    (sim_plane_res > m_loop_closure_minimum_similarity_planar))
+                {
+                    if (0) // Enable check in roi
                     {
-                        sim_plane_res_roi = last_keyframe->max_similiarity_of_two_image( last_keyframe->m_feature_img_plane_roi, keyframe_vec[ his ]->m_feature_img_plane_roi );
-                        sim_line_res_roi = last_keyframe->max_similiarity_of_two_image( last_keyframe->m_feature_img_line_roi, keyframe_vec[ his ]->m_feature_img_line_roi );
-                        if ( ( ( sim_plane_res_roi > m_loop_closure_minimum_similarity_linear ) && ( sim_plane_res > 0.92 ) ) ||
-                             ( sim_line_res_roi > m_loop_closure_minimum_similarity_planar ) )
+                        sim_plane_res_roi = last_keyframe->max_similiarity_of_two_image(last_keyframe->m_feature_img_plane_roi, keyframe_vec[his]->m_feature_img_plane_roi);
+                        sim_line_res_roi = last_keyframe->max_similiarity_of_two_image(last_keyframe->m_feature_img_line_roi, keyframe_vec[his]->m_feature_img_line_roi);
+                        if (((sim_plane_res_roi > m_loop_closure_minimum_similarity_linear) && (sim_plane_res > 0.92)) ||
+                            (sim_line_res_roi > m_loop_closure_minimum_similarity_planar))
                         {
-                            m_logger_loop_closure.printf( "Range in roi check pass\r\n"); 
+                            m_logger_loop_closure.printf("Range in roi check pass\r\n");
                         }
                         else
                         {
@@ -1027,127 +1005,138 @@ class Laser_mapping
                         }
                     }
 
-                    if( (last_keyframe->m_set_cell.size() - keyframe_vec[ his ]->m_set_cell.size() ) /  (last_keyframe->m_set_cell.size() + keyframe_vec[ his ]->m_set_cell.size())*0.1 )
+                    if ((last_keyframe->m_set_cell.size() - keyframe_vec[his]->m_set_cell.size()) / (last_keyframe->m_set_cell.size() + keyframe_vec[his]->m_set_cell.size()) * 0.1)
                     {
                         continue;
                     }
-                    m_scene_align.set_downsample_resolution( m_loop_closure_map_alignment_resolution, m_loop_closure_map_alignment_resolution );
+                    m_scene_align.set_downsample_resolution(m_loop_closure_map_alignment_resolution, m_loop_closure_map_alignment_resolution);
                     m_scene_align.m_para_scene_alignments_maximum_residual_block = m_para_scene_alignments_maximum_residual_block;
-                    double icp_score = m_scene_align.find_tranfrom_of_two_mappings( last_keyframe, keyframe_vec[ his ], m_loop_closure_map_alignment_if_dump_matching_result );
-                    
-                    screen_printf( "===============================================\r\n" );
-                    screen_printf( "%s -- %s\r\n", m_filename_vec[ keyframe_vec.size() - 1 ].c_str(), m_filename_vec[ his ].c_str() );
-                    screen_printf( "ICP inlier threshold = %lf, %lf\r\n", icp_score, m_scene_align.m_pc_reg.m_inlier_threshold );
-                    screen_printf( "%s\r\n", m_scene_align.m_pc_reg.m_final_opt_summary.BriefReport().c_str() );
-                    
-                    m_logger_loop_closure.printf( "===============================================\r\n" );
-                    m_logger_loop_closure.printf( "%s -- %s\r\n", m_filename_vec[ keyframe_vec.size() - 1 ].c_str(), m_filename_vec[ his ].c_str() );
-                    m_logger_loop_closure.printf( "ICP inlier threshold = %lf, %lf\r\n", icp_score, m_scene_align.m_pc_reg.m_inlier_threshold );
-                    m_logger_loop_closure.printf( "%s\r\n", m_scene_align.m_pc_reg.m_final_opt_summary.BriefReport().c_str() );
-                    
-                    if ( m_scene_align.m_pc_reg.m_inlier_threshold > m_loop_closure_map_alignment_inlier_threshold*2 )
+                    // 我们移到创建的地方一起设置参数
+                    double icp_score = m_scene_align.find_tranfrom_of_two_mappings(last_keyframe, keyframe_vec[his], m_loop_closure_map_alignment_if_dump_matching_result);
+
+                    screen_printf("===============================================\r\n");
+                    screen_printf("%s -- %s\r\n", m_filename_vec[keyframe_vec.size() - 1].c_str(), m_filename_vec[his].c_str());
+                    screen_printf("ICP inlier threshold = %lf, %lf\r\n", icp_score, m_scene_align.m_pc_reg.m_inlier_threshold);
+                    screen_printf("%s\r\n", m_scene_align.m_pc_reg.m_final_opt_summary.BriefReport().c_str());
+
+                    m_logger_loop_closure.printf("===============================================\r\n");
+                    m_logger_loop_closure.printf("%s -- %s\r\n", m_filename_vec[keyframe_vec.size() - 1].c_str(), m_filename_vec[his].c_str());
+                    m_logger_loop_closure.printf("ICP inlier threshold = %lf, %lf\r\n", icp_score, m_scene_align.m_pc_reg.m_inlier_threshold);
+                    m_logger_loop_closure.printf("%s\r\n", m_scene_align.m_pc_reg.m_final_opt_summary.BriefReport().c_str());
+
+                    // 匹配度差，该history附近不太可能存在回环，step = 8
+                    if (m_scene_align.m_pc_reg.m_inlier_threshold > m_loop_closure_map_alignment_inlier_threshold * 2)
                     {
                         his += 10;
                         continue;
                     }
 
-                    if ( m_scene_align.m_pc_reg.m_inlier_threshold < m_loop_closure_map_alignment_inlier_threshold )
+                    // 匹配度很好
+                    if (m_scene_align.m_pc_reg.m_inlier_threshold < m_loop_closure_map_alignment_inlier_threshold)
                     {
-                        printf( "I believe this is true loop.\r\n" );
-                       m_logger_loop_closure.printf( "I believe this is true loop.\r\n" );
-                        auto Q_a = pose3d_vec[ his ].q;
-                        auto Q_b = pose3d_vec[ pose3d_vec.size() - 1 ].q;
-                        auto T_a = pose3d_vec[ his ].p;
-                        auto T_b = pose3d_vec[ pose3d_vec.size() - 1 ].p;
-                        auto ICP_q = m_scene_align.m_pc_reg.m_q_w_curr;
+                        printf("I believe this is true loop.\r\n");
+                        m_logger_loop_closure.printf("I believe this is true loop.\r\n");
+                        auto Q_a = pose3d_vec[his].q;
+                        auto Q_b = pose3d_vec[pose3d_vec.size() - 1].q;
+                        auto T_a = pose3d_vec[his].p;
+                        auto T_b = pose3d_vec[pose3d_vec.size() - 1].p;
+                        auto ICP_q = m_scene_align.m_pc_reg.m_q_w_curr; // loop closure时,  curr = incre, 从curr到history TF in map
                         auto ICP_t = m_scene_align.m_pc_reg.m_t_w_curr;
 
-                        ICP_t = ( ICP_q.inverse() * ( -ICP_t ) );
-                        ICP_q = ICP_q.inverse();
+                        ICP_t = (ICP_q.inverse() * (-ICP_t));
+                        ICP_q = ICP_q.inverse(); // 取相反方向得到history to curr
 
                         screen_out << "ICP_q = " << ICP_q.coeffs().transpose() << std::endl;
                         screen_out << "ICP_t = " << ICP_t.transpose() << std::endl;
-                        for ( int i = 0; i < 10; i++ )
+                        for (int i = 0; i < 10; i++)
                         {
                             screen_out << "-------------------------------------" << std::endl;
                             screen_out << ICP_q.coeffs().transpose() << std::endl;
                             screen_out << ICP_t.transpose() << std::endl;
                         }
+
                         Ceres_pose_graph_3d::VectorOfConstraints constrain_vec_temp;
                         constrain_vec_temp = constrain_vec;
-                        constrain_vec_temp.push_back( Scene_alignment<float>::add_constrain_of_loop( pose3d_vec.size() - 1, his, Q_a, T_a, Q_b, T_b, ICP_q, ICP_t ) );
+                        constrain_vec_temp.push_back(Scene_alignment<float>::add_constrain_of_loop(pose3d_vec.size() - 1, his, Q_a, T_a, Q_b, T_b, ICP_q, ICP_t));
+                        // 计算wrong_curr到 history的正确约束，也就是correct_curr_to_history位姿
                         std::string path_name = m_loop_save_dir_name;
-                        std::string g2o_filename = std::string( path_name ).append( "/loop.g2o" );
+                        std::string g2o_filename = std::string(path_name).append("/loop.g2o");
                         pose3d_map_ori = pose3d_map;
                         auto temp_pose_3d_map = pose3d_map;
-                        Scene_alignment<float>::save_edge_and_vertex_to_g2o( g2o_filename.c_str(), temp_pose_3d_map, constrain_vec_temp );
-                        Ceres_pose_graph_3d::pose_graph_optimization( temp_pose_3d_map, constrain_vec_temp );
-                        Ceres_pose_graph_3d::OutputPoses( std::string( path_name ).append( "/poses_ori.txt" ), pose3d_map_ori );
-                        Ceres_pose_graph_3d::OutputPoses( std::string( path_name ).append( "/poses_opm.txt" ), temp_pose_3d_map );
-                        m_scene_align.dump_file_name( std::string( path_name ).append( "/file_name.txt" ), map_file_name );
+                        Scene_alignment<float>::save_edge_and_vertex_to_g2o(g2o_filename.c_str(), temp_pose_3d_map, constrain_vec_temp);
+                        // 把每个finished keyframe的poses(histories, wrong_curr), 位姿之间的正确约束(histories-histories, correct_curr2history)写入到g2o文件中
+                        Ceres_pose_graph_3d::pose_graph_optimization(temp_pose_3d_map, constrain_vec_temp);  // 应该是正式计算了
+                        // 每产生一个闭环约束，就用ceres构建pose_graph, 计算一次每个位姿的解, 更新位姿
+                        Ceres_pose_graph_3d::OutputPoses(std::string(path_name).append("/poses_ori.txt"), pose3d_map_ori);
+                        Ceres_pose_graph_3d::OutputPoses(std::string(path_name).append("/poses_opm.txt"), temp_pose_3d_map);
+                        m_scene_align.dump_file_name(std::string(path_name).append("/file_name.txt"), map_file_name);
 
-                        loop_closure_pub_optimzed_path( temp_pose_3d_map );
+                        loop_closure_pub_optimzed_path(temp_pose_3d_map);
+                        // 每有一次闭环就会计算一次pose graph， 然后把计算后的位姿发布到 ”aft_loopclosure_path“上
 
-                        for ( int pc_idx = ( int ) map_id_pc.size() - 1; pc_idx >= 0; pc_idx -= 2 )
+                        for (int pc_idx = (int)map_id_pc.size() - 1; pc_idx >= 0; pc_idx -= 2) // L&G loop closure map correction
                         {
                             screen_out << "*** Refine pointcloud, curren idx = " << pc_idx << " ***" << endl;
-                            auto refined_pt = map_rfn.refine_pointcloud( map_id_pc, pose3d_map_ori, temp_pose_3d_map, pc_idx, 0 );
-                            pcl::toROSMsg( refined_pt, ros_laser_cloud_surround );
+                            auto refined_pt = map_rfn.refine_pointcloud(map_id_pc, pose3d_map_ori, temp_pose_3d_map, pc_idx, 0);// 用pose graph更新后的poses，对地图的各个小部分进行更新，也就是重新计算在map下的points
+                            pcl::toROSMsg(refined_pt, ros_laser_cloud_surround);
                             ros_laser_cloud_surround.header.stamp = ros::Time::now();
                             ros_laser_cloud_surround.header.frame_id = "camera_init";
-                            m_pub_pc_aft_loop.publish( ros_laser_cloud_surround );
-                            std::this_thread::sleep_for( std::chrono::milliseconds( 10 ) );
+                            m_pub_pc_aft_loop.publish(ros_laser_cloud_surround);
+                            std::this_thread::sleep_for(std::chrono::milliseconds(10));
                         }
-                        //map_rfn.refine_mapping( path_name, 0 );
-                        if ( 0 )
+                        
+                        if (0)
                         {
-                            map_rfn.refine_mapping( map_id_pc, pose3d_map_ori, temp_pose_3d_map, 1 );
-                            pcl::toROSMsg( map_rfn.m_pts_aft_refind, ros_laser_cloud_surround );
+                            map_rfn.refine_mapping(map_id_pc, pose3d_map_ori, temp_pose_3d_map, 1);
+                            pcl::toROSMsg(map_rfn.m_pts_aft_refind, ros_laser_cloud_surround);
                             ros_laser_cloud_surround.header.stamp = ros::Time::now();
                             ros_laser_cloud_surround.header.frame_id = "camera_init";
-                            m_pub_pc_aft_loop.publish( ros_laser_cloud_surround );
+                            m_pub_pc_aft_loop.publish(ros_laser_cloud_surround);
                         }
+
                         if_end = 1;
                         break;
-                    }
-                    else
+                    }    // end 匹配程度很好
+                    else // 匹配程度较好, step = 5
                     {
                         his += 5;
                     }
-                    if ( if_end )
+                    if (if_end)
                     {
                         break;
                     }
-                }
-                if ( if_end )
+                } // end 满足相似性潜在条件
+
+                if (if_end)
                 {
-                    std::this_thread::sleep_for( std::chrono::milliseconds( 500 ) );
+                    std::this_thread::sleep_for(std::chrono::milliseconds(500));
                     break;
                 }
-            }
+            } // end all history finished keyframes
 
-            screen_out << m_timer.toc_string( "Find loop" ) << std::endl;
+            screen_out << m_timer.toc_string("Find loop") << std::endl;
 
-            m_scene_align.dump_file_name( std::string( m_loop_save_dir_name ).append( "/file_name.txt" ), map_file_name );
-            
-            if ( 1 )
+            m_scene_align.dump_file_name(std::string(m_loop_save_dir_name).append("/file_name.txt"), map_file_name);
+
+            if (1)
             {
-
-                m_timer.tic( "Pub surround pts" );
-                pcl::toROSMsg( pt_full, ros_laser_cloud_surround );
+                m_timer.tic("Pub surround pts");
+                pcl::toROSMsg(pt_full, ros_laser_cloud_surround); // pt_full始终为空
                 ros_laser_cloud_surround.header.stamp = ros::Time::now();
                 ros_laser_cloud_surround.header.frame_id = "camera_init";
-                m_pub_debug_pts.publish( ros_laser_cloud_surround );
-                screen_out << m_timer.toc_string( "Pub surround pts" ) << std::endl;
+                m_pub_debug_pts.publish(ros_laser_cloud_surround);
+                screen_out << m_timer.toc_string("Pub surround pts") << std::endl;
             }
-            if ( if_end )
+
+            if (if_end) // 退出while循环
             {
-                std::this_thread::sleep_for( std::chrono::milliseconds( 500 ) );
+                std::this_thread::sleep_for(std::chrono::milliseconds(500));
+                // break; default when there is a loop break while, we comment this line to prevent jump while
                 break;
             }
         }
     }
-
+    // 线程: 每隔100帧发布当前帧周围1000m范围内降采样后的points
     void service_pub_surround_pts()
     {
         pcl::VoxelGrid<PointType> down_sample_filter_surface;
@@ -1205,7 +1194,7 @@ class Laser_mapping
         return Eigen::Matrix<double, 3, 1>( pt.x, pt.y, pt.z );
     }
 
-    //receive odomtry
+    //receive odomtry 没用到
     void laserOdometryHandler( const nav_msgs::Odometry::ConstPtr &laserOdometry )
     {
         m_mutex_buf.lock();
@@ -1313,43 +1302,50 @@ class Laser_mapping
         return 0;
     }
 
-    int process_new_scan()
+    // process线程开启的另一个线程
+    // 功能：
+    //  <1> 更新成员变量 m_laser_cloud_surface_history ；前段VO；
+    
+
+    int process_new_scan() 
     {
         m_timer.tic( "Frame process" );
         m_timer.tic( "Query points for match" );
 
         Common_tools::Timer timer_frame;
         timer_frame.tic();
-        pcl::PointCloud<PointType> current_laser_cloud_full, current_laser_cloud_corner_last, current_laser_cloud_surf_last;
+        pcl::PointCloud<PointType> current_laser_cloud_full, current_laser_cloud_corner_last, current_laser_cloud_surf_last; // 当前要处理的帧
+
 
         pcl::VoxelGrid<PointType>   down_sample_filter_corner = m_down_sample_filter_corner;
         pcl::VoxelGrid<PointType>   down_sample_filter_surface = m_down_sample_filter_surface;
         pcl::KdTreeFLANN<PointType> kdtree_corner_from_map;
         pcl::KdTreeFLANN<PointType> kdtree_surf_from_map;
 
+        // 该线程要处理的数据：三种点云
         m_mutex_querypointcloud.lock();
-        current_laser_cloud_full = *m_laser_cloud_full_res;
-        current_laser_cloud_corner_last = *m_laser_cloud_corner_last;
-        current_laser_cloud_surf_last = *m_laser_cloud_surf_last;
+        current_laser_cloud_full = *m_laser_cloud_full_res;    // 当前帧全部点云
+        current_laser_cloud_corner_last = *m_laser_cloud_corner_last;  // 当前帧corners
+        current_laser_cloud_surf_last = *m_laser_cloud_surf_last;  // 当前帧plannes
 
-        float min_t, max_t;
-        find_min_max_intensity( current_laser_cloud_full.makeShared(), min_t, max_t );
+        float min_t, max_t;   // 本帧数据中最小，最大时间戳
+        find_min_max_intensity( current_laser_cloud_full.makeShared(), min_t, max_t ); // 点的intensity存放的是时间戳
 
         double point_cloud_current_timestamp = min_t;
         if ( point_cloud_current_timestamp > m_lastest_pc_income_time )
         {
             m_lastest_pc_income_time = point_cloud_current_timestamp;
         }
-        point_cloud_current_timestamp = m_lastest_pc_income_time;
+        point_cloud_current_timestamp = m_lastest_pc_income_time; // 始终让 point_cloud_current_timestamp ， m_lastest_pc_income_time 保持相等
         m_time_odom = m_last_time_stamp;
         m_minimum_pt_time_stamp = m_last_time_stamp;
         m_maximum_pt_time_stamp = max_t;
         m_last_time_stamp = max_t;
         Point_cloud_registration pc_reg;
-        init_pointcloud_registration( pc_reg );
+        init_pointcloud_registration( pc_reg ); // local map与当前帧匹配前，set registration params
         m_current_frame_index++;
         double time_odom = ros::Time::now().toSec();
-        m_mutex_querypointcloud.unlock();
+        m_mutex_querypointcloud.unlock(); // unlock so ros subcriber can update point clouds
 
         screen_printf( "****** Before timestamp info = [%.6f, %.6f, %.6f, %.6f ] ****** \r\n", m_minimum_pt_time_stamp, m_maximum_pt_time_stamp, min_t, m_lastest_pc_matching_refresh_time );
 
@@ -1360,10 +1356,10 @@ class Laser_mapping
         }
         *( m_logger_timer.get_ostream() ) << m_timer.toc_string( "Wait sync" ) << std::endl;
         screen_printf( "****** After timestamp info = [%.6f, %.6f, %.6f, %.6f ] ****** \r\n", m_minimum_pt_time_stamp, m_maximum_pt_time_stamp, min_t, m_lastest_pc_matching_refresh_time );
-
+        
+        //对数据进行滤波降采样并存储在下方
         pcl::PointCloud<PointType>::Ptr laserCloudCornerStack( new pcl::PointCloud<PointType>() );
         pcl::PointCloud<PointType>::Ptr laserCloudSurfStack( new pcl::PointCloud<PointType>() );
-
         if ( m_if_input_downsample_mode )
         {
             down_sample_filter_corner.setInputCloud( current_laser_cloud_corner_last.makeShared() );
@@ -1385,7 +1381,7 @@ class Laser_mapping
             m_pcl_tools_raw.save_to_pcd_files( "raw", current_laser_cloud_full, m_current_frame_index );
         }
 
-        m_q_w_last = m_q_w_curr;
+        m_q_w_last = m_q_w_curr; // 设置上一帧的位姿
         m_t_w_last = m_t_w_curr;
 
         pcl::PointCloud<PointType>::Ptr laser_cloud_corner_from_map( new pcl::PointCloud<PointType>() );
@@ -1402,6 +1398,7 @@ class Laser_mapping
         kdtree_surf_from_map = m_kdtree_surf_from_map_last;
         m_mutex_buff_for_matching_corner.unlock();
 
+        // 输入的是角地图，面地图，及其kdtree,当前帧的角点和面点，这里是匹配点查询和位姿优化
         reg_res = pc_reg.find_out_incremental_transfrom( laser_cloud_corner_from_map, laser_cloud_surf_from_map,
                                                          kdtree_corner_from_map, kdtree_surf_from_map,
                                                          laserCloudCornerStack, laserCloudSurfStack );
@@ -1416,8 +1413,11 @@ class Laser_mapping
         }
         m_timer.tic( "Add new frame" );
         
+
+        // 存当前帧经消除畸变后的角点和面点
         PointType pointOri, pointSel;
-        pcl::PointCloud<PointType>::Ptr pc_new_feature_corners( new pcl::PointCloud<PointType>() );
+        // 下边两个存储的是经过消除畸变的corners和planne
+        pcl::PointCloud<PointType>::Ptr pc_new_feature_corners( new pcl::PointCloud<PointType>() ); // 当前帧经消除畸变后的corners在map下坐标
         pcl::PointCloud<PointType>::Ptr pc_new_feature_surface( new pcl::PointCloud<PointType>() );
         for ( int i = 0; i < laser_corner_pt_num; i++ )
         {
@@ -1431,6 +1431,8 @@ class Laser_mapping
             pc_new_feature_surface->push_back( pointSel );
         }
 
+
+        // 对角点和面点进行滤波，应该防止地图过大；防止你在同一个地方点云密集
         down_sample_filter_corner.setInputCloud( pc_new_feature_corners );
         down_sample_filter_corner.filter( *pc_new_feature_corners );
         down_sample_filter_surface.setInputCloud( pc_new_feature_surface );
@@ -1439,8 +1441,9 @@ class Laser_mapping
         double r_diff = m_q_w_curr.angularDistance( m_last_his_add_q ) * 57.3;
         double t_diff = ( m_t_w_curr - m_last_his_add_t ).norm();
 
-        pc_reg.pointcloudAssociateToMap( current_laser_cloud_full, current_laser_cloud_full, g_if_undistore );
+        pc_reg.pointcloudAssociateToMap( current_laser_cloud_full, current_laser_cloud_full, g_if_undistore ); // 全部点云 利用求得的变换 转换到map坐标系下 // 上面没转换吗？答通过pointcloudAssociateToMap将全部点云消除畸变并转换坐标系后重新储存在current_laser_cloud_full中
 
+        // 保留400帧作为历史地图，并对超过和不足的进行处理：历史关键帧不足m_maximum_history_size则添加，超过m_maximum_history_size则删除
         m_mutex_mapping.lock();
 
         if ( m_laser_cloud_corner_history.size() < ( size_t ) m_maximum_history_size ||
@@ -1454,7 +1457,7 @@ class Laser_mapping
             m_laser_cloud_surface_history.push_back( *pc_new_feature_surface );
             m_mutex_dump_full_history.lock();
             m_laser_cloud_full_history.push_back( current_laser_cloud_full );
-            m_his_reg_error.push_back( pc_reg.m_inlier_threshold );
+            m_his_reg_error.push_back( pc_reg.m_inlier_threshold ); // 每一帧点云与local map匹配计算出位姿后的cost，the smaller the more certain about calculated pose.
             m_mutex_dump_full_history.unlock();
         }
         else
@@ -1486,16 +1489,20 @@ class Laser_mapping
             m_mutex_dump_full_history.unlock();
         }
 
+
+        // 将处理好的点云数据转为eigen形式并添加到 m_pt_cell_map_corners/planes中
         m_if_mapping_updated_corner = true;
         m_if_mapping_updated_surface = true;
 
+        // 把每一帧corners在map下点加入到m_pt_cell_map_corners
+        // 把每一帧plannes在map下点加入到m_pt_cell_map_planes
         m_pt_cell_map_corners.append_cloud( PCL_TOOLS::pcl_pts_to_eigen_pts<float, PointType>( pc_new_feature_corners ) );
         m_pt_cell_map_planes.append_cloud( PCL_TOOLS::pcl_pts_to_eigen_pts<float, PointType>( pc_new_feature_surface ) );
 
         *( m_logger_common.get_ostream() ) << "New added regtime " << point_cloud_current_timestamp << endl;
         if ( ( m_lastest_pc_reg_time < point_cloud_current_timestamp ) || ( point_cloud_current_timestamp < 10.0 ) )
         {
-            m_q_w_curr = pc_reg.m_q_w_curr;
+            m_q_w_curr = pc_reg.m_q_w_curr; // 如线程得到最新位姿则更新位姿
             m_t_w_curr = pc_reg.m_t_w_curr;
             m_lastest_pc_reg_time = point_cloud_current_timestamp;
         }
@@ -1513,6 +1520,7 @@ class Laser_mapping
 
         m_mutex_mapping.unlock();
 
+        // 在处理第0帧数据时，再开启一个线程
         if ( m_thread_match_buff_refresh.size() < ( size_t ) m_maximum_mapping_buff_thread )
         {
             std::future<void> *m_mapping_refresh_service =
@@ -1520,7 +1528,11 @@ class Laser_mapping
             m_thread_match_buff_refresh.push_back( m_mapping_refresh_service );
         }
 
-        // ANCHOR processiong keyframe
+        // ANCHOR processiong keyframe 记录关键帧
+        /*
+        描述了关键帧更新的操作
+        1. 栅格化点云地图（创建新的栅格，把新的栅格放到KF中去）
+        */
         if ( m_loop_closure_if_enable )
         {
             std::set<Points_cloud_map<float>::Mapping_cell_ptr> cell_vec;
@@ -1528,10 +1540,11 @@ class Laser_mapping
             std::unique_lock<std::mutex> lock( m_mutex_keyframe );
             for(auto it = m_keyframe_of_updating_list.begin(); it != m_keyframe_of_updating_list.end(); it++ )
             {
-              (*it)->add_cells(cell_vec);
+              (*it)->add_cells(cell_vec); // 对于待更新列表中的每个关键帧，将cellvec添加到其对应的cell中。
             }
 
-            if ( m_keyframe_of_updating_list.front()->m_accumulate_frames >= ( size_t ) m_para_scans_of_each_keyframe )
+            // 如果更新列表中的第一个关键帧累计的帧数达到了设定值，将其设为当前帧的结束帧，并将其姿态信息和需要处理的关键帧列表中。
+            if ( m_keyframe_of_updating_list.front()->m_accumulate_frames >= ( size_t ) m_para_scans_of_each_keyframe ) // 300帧
             {
                 m_keyframe_of_updating_list.front()->m_ending_frame_idx = m_current_frame_index;
                 
@@ -1542,7 +1555,8 @@ class Laser_mapping
                 m_keyframe_of_updating_list.pop_front();
             }
 
-            if ( m_keyframe_of_updating_list.back()->m_accumulate_frames >= ( size_t ) m_para_scans_between_two_keyframe )
+            // 功能：添加新的关键帧
+            if ( m_keyframe_of_updating_list.back()->m_accumulate_frames >= ( size_t ) m_para_scans_between_two_keyframe ) // 100 帧，强行给KF一些点云？
             {
                 m_mutex_dump_full_history.lock();
                 
@@ -1557,7 +1571,7 @@ class Laser_mapping
                 }
                 m_laser_cloud_full_history.clear();
                 m_mutex_dump_full_history.unlock();
-                m_keyframe_of_updating_list.push_back( std::make_shared<Maps_keyframe<float>>() );
+                m_keyframe_of_updating_list.push_back( std::make_shared<Maps_keyframe<float>>() ); // 创建新的KF
 
                 screen_out << "Number of keyframes in update lists: " << m_keyframe_of_updating_list.size() << std::endl;
             }
@@ -1663,21 +1677,21 @@ class Laser_mapping
     {
         double first_time_stamp = -1;
         m_last_max_blur = 0.0;
-        if ( 0 )
-        {
-            if ( 0 )
-            {
-                m_mapping_refresh_service_corner =
-                    new std::future<void>( std::async( std::launch::async, &Laser_mapping::service_update_buff_for_matching_corner, this ) );
-                m_mapping_refresh_service_surface =
-                    new std::future<void>( std::async( std::launch::async, &Laser_mapping::service_update_buff_for_matching_surface, this ) );
-            }
-            else
-            {
-                m_mapping_refresh_service =
-                    new std::future<void>( std::async( std::launch::async, &Laser_mapping::service_update_buff_for_matching, this ) );
-            }
-        }
+        // if ( 0 )
+        // {
+        //     if ( 0 )
+        //     {
+        //         m_mapping_refresh_service_corner =
+        //             new std::future<void>( std::async( std::launch::async, &Laser_mapping::service_update_buff_for_matching_corner, this ) );
+        //         m_mapping_refresh_service_surface =
+        //             new std::future<void>( std::async( std::launch::async, &Laser_mapping::service_update_buff_for_matching_surface, this ) );
+        //     }
+        //     else
+        //     {
+        //         m_mapping_refresh_service =
+        //             new std::future<void>( std::async( std::launch::async, &Laser_mapping::service_update_buff_for_matching, this ) );
+        //     }
+        // }
 
         m_service_pub_surround_pts = new std::future<void>( std::async( std::launch::async, &Laser_mapping::service_pub_surround_pts, this ) );
         if ( m_loop_closure_if_enable )
@@ -1694,7 +1708,7 @@ class Laser_mapping
             m_logger_timer.printf( "------------------\r\n" );
 
             //printf_line;
-            while ( m_queue_avail_data.empty() )
+            while ( m_queue_avail_data.empty() ) // 待处理的点队列
             {
                 sleep( 0.0001 );
             }
@@ -1705,8 +1719,8 @@ class Laser_mapping
                 ( *m_logger_common.get_ostream() ) << "Drop lidar frame in mapping for real time performance !!!" << endl;
                 m_queue_avail_data.pop();
             }
-
-            Data_pair *current_data_pair = m_queue_avail_data.front();
+            // 获取要处理的点
+            Data_pair *current_data_pair = m_queue_avail_data.front(); // 获取要处理的点
             m_queue_avail_data.pop();
             m_mutex_buf.unlock();
 
@@ -1721,9 +1735,10 @@ class Laser_mapping
 
             ( *m_logger_common.get_ostream() ) << "Messgage time stamp = " << m_time_pc_corner_past - first_time_stamp << endl;
 
+            // 从待处理队列中拿出一帧的数据，ros 转化为点云
             m_mutex_querypointcloud.lock();
-            m_laser_cloud_corner_last->clear();
-            pcl::fromROSMsg( *( current_data_pair->m_pc_corner ), *m_laser_cloud_corner_last );
+            m_laser_cloud_corner_last->clear(); 
+            pcl::fromROSMsg( *( current_data_pair->m_pc_corner ), *m_laser_cloud_corner_last ); 
 
             m_laser_cloud_surf_last->clear();
             pcl::fromROSMsg( *( current_data_pair->m_pc_plane ), *m_laser_cloud_surf_last );
@@ -1734,10 +1749,13 @@ class Laser_mapping
 
             delete current_data_pair;
 
+            // 删减线程
             Common_tools::maintain_maximum_thread_pool<std::future<int> *>( m_thread_pool, m_maximum_parallel_thread );
 
+            // 开启线程，放入线程池中。每个线程就是处理上面获得的点云。
+            // ? 线程改了什么？
+            // ? 线程算出来后如何处理全局地图并显示？
             std::future<int> *thd = new std::future<int>( std::async( std::launch::async, &Laser_mapping::process_new_scan, this ) );
-
             *( m_logger_timer.get_ostream() ) << m_timer.toc_string( "Prepare to enter thread" ) << std::endl;
             m_thread_pool.push_back( thd );
 

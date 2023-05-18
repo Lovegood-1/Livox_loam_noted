@@ -69,7 +69,7 @@ class Laser_feature
 
     int m_if_pub_debug_feature = 1;
 
-    const int   m_para_system_delay = 20;
+    const int   m_para_system_delay = 20; // 弃用前20帧初始数据
     int         m_para_system_init_count = 0;
     bool        m_para_systemInited = false;
     float       m_pc_curvature[ 400000 ];
@@ -82,12 +82,12 @@ class Laser_feature
     float       m_line_resolution;
     int         m_piecewise_number;
 
-    int m_maximum_input_lidar_pointcloud = 3;
+    int m_maximum_input_lidar_pointcloud = 3; // 支持多个雷达设备
     File_logger m_file_logger;
 
     bool        m_if_pub_each_line = false;
     int         m_lidar_type = 0; // 0 is velodyne, 1 is livox
-    int         m_laser_scan_number = 64;
+    int         m_laser_scan_number = 64; //total size of the Lines, 16/64 for Velodyne, Number of half-a-petal for Livox         Livox Mid-40: 100,000 points/s
     std::mutex  m_mutex_lock_handler;
     Livox_laser m_livox;
     ros::Time   m_init_timestamp;
@@ -98,6 +98,7 @@ class Laser_feature
         return ( m_pc_curvature[ i ] < m_pc_curvature[ j ] );
     }
 
+    // 要发布的东西，包括线、线上的点、面等等
     ros::Publisher              m_pub_laser_pc;
     ros::Publisher              m_pub_pc_sharp_corner;
     ros::Publisher              m_pub_pc_less_sharp_corner;
@@ -109,13 +110,13 @@ class Laser_feature
     std::vector<std::string> m_input_lidar_topic_name_vec;
     std::vector<ros::Subscriber> m_sub_input_laser_cloud_vec;
     std::vector< std::vector<pcl::PointCloud<pcl::PointXYZI> > >   m_map_pointcloud_full_vec_vec;
-    std::vector< std::vector<pcl::PointCloud<pcl::PointXYZI> > >   m_map_pointcloud_surface_vec_vec;
-    std::vector< std::vector<pcl::PointCloud<pcl::PointXYZI> > >   m_map_pointcloud_corner_vec_vec;
+    std::vector< std::vector<pcl::PointCloud<pcl::PointXYZI> > >   m_map_pointcloud_surface_vec_vec;// 点边缘特征
+    std::vector< std::vector<pcl::PointCloud<pcl::PointXYZI> > >   m_map_pointcloud_corner_vec_vec;  // 线边缘特征
     double m_minimum_range = 0.01;
 
-    ros::Publisher            m_pub_pc_livox_corners, m_pub_pc_livox_surface, m_pub_pc_livox_full;
-    sensor_msgs::PointCloud2  temp_out_msg;
-    pcl::VoxelGrid<PointType> m_voxel_filter_for_surface;
+    ros::Publisher            m_pub_pc_livox_corners, m_pub_pc_livox_surface, m_pub_pc_livox_full; // 发布出去
+    sensor_msgs::PointCloud2  temp_out_msg; //// 发布点云 sensor_msgs 是 ros的点云数据类型
+    pcl::VoxelGrid<PointType> m_voxel_filter_for_surface; // 一个工具类别，用于滤波
     pcl::VoxelGrid<PointType> m_voxel_filter_for_corner;
 
     template<typename T>
@@ -129,12 +130,17 @@ class Laser_feature
 
 
     int                       init_ros_env()
+    /*
+    1. 设置一些参数
+    2. 准备好要发布的变量
+    3. 准备预处理要用的工具
+    */
     {
 
         ros::NodeHandle nh;
         m_init_timestamp = ros::Time::now();
         init_livox_lidar_para(nh);
-        get_ros_parameter<int>(nh, "feature_extraction/scan_line", m_laser_scan_number, 16 );
+        get_ros_parameter<int>(nh, "feature_extraction/scan_line", m_laser_scan_number, 16 ); // 把1的值放到2上，如果没有就给2一个默认的值3
         get_ros_parameter<float>( nh,"feature_extraction/mapping_plane_resolution", m_plane_resolution, 0.8 );
         get_ros_parameter<float>( nh,"feature_extraction/mapping_line_resolution", m_line_resolution, 0.8 );
         get_ros_parameter<double>(nh, "feature_extraction/minimum_range", m_minimum_range, 0.1 );
@@ -145,7 +151,7 @@ class Laser_feature
         double livox_corners, livox_surface, minimum_view_angle;
         get_ros_parameter<double>(nh, "feature_extraction/corner_curvature", livox_corners, 0.05 );
         get_ros_parameter<double>(nh, "feature_extraction/surface_curvature", livox_surface, 0.01 );
-        get_ros_parameter<double>(nh, "feature_extraction/minimum_view_angle", minimum_view_angle, 10 );
+        get_ros_parameter<double>(nh, "feature_extraction/minimum_view_angle", minimum_view_angle, 10 ); 
         string log_save_dir_name;
         get_ros_parameter<std::string>( nh,"log_save_dir", log_save_dir_name, "../" );
 
@@ -170,7 +176,7 @@ class Laser_feature
         m_map_pointcloud_surface_vec_vec.resize(m_maximum_input_lidar_pointcloud);
         m_map_pointcloud_corner_vec_vec.resize(m_maximum_input_lidar_pointcloud);
 
-        for(int i = 0 ; i< m_maximum_input_lidar_pointcloud; i++)
+        for(int i = 0 ; i< m_maximum_input_lidar_pointcloud; i++) // 支持多个雷达设备
         {
             m_input_lidar_topic_name_vec.push_back(string("laser_points_").append(std::to_string(i)));
             m_sub_input_laser_cloud_vec.push_back( nh.subscribe<sensor_msgs::PointCloud2>( m_input_lidar_topic_name_vec.back(), 10000, boost::bind( &Laser_feature::laserCloudHandler, this, _1,  m_input_lidar_topic_name_vec.back()) ) );
@@ -178,16 +184,16 @@ class Laser_feature
             m_map_pointcloud_surface_vec_vec[i].resize(m_piecewise_number);
             m_map_pointcloud_corner_vec_vec[i].resize(m_piecewise_number);
         }
-        m_pub_laser_pc = nh.advertise<sensor_msgs::PointCloud2>( "/laser_points_2", 10000 );
-        m_pub_pc_sharp_corner = nh.advertise<sensor_msgs::PointCloud2>( "/laser_cloud_sharp", 10000 );
-        m_pub_pc_less_sharp_corner = nh.advertise<sensor_msgs::PointCloud2>( "/laser_cloud_less_sharp", 10000 );
-        m_pub_pc_surface_flat = nh.advertise<sensor_msgs::PointCloud2>( "/laser_cloud_flat", 10000 );
-        m_pub_pc_surface_less_flat = nh.advertise<sensor_msgs::PointCloud2>( "/laser_cloud_less_flat", 10000 );
+        m_pub_laser_pc = nh.advertise<sensor_msgs::PointCloud2>( "/laser_points_2", 10000 );  // // 一帧全部点云
+        m_pub_pc_sharp_corner = nh.advertise<sensor_msgs::PointCloud2>( "/laser_cloud_sharp", 10000 ); // 边界线上锐角特征点云
+        m_pub_pc_less_sharp_corner = nh.advertise<sensor_msgs::PointCloud2>( "/laser_cloud_less_sharp", 10000 ); // 边界线上钝角特征点云
+        m_pub_pc_surface_flat = nh.advertise<sensor_msgs::PointCloud2>( "/laser_cloud_flat", 10000 ); // 平面上特征点云
+        m_pub_pc_surface_less_flat = nh.advertise<sensor_msgs::PointCloud2>( "/laser_cloud_less_flat", 10000 ); // 平面上不太平的特征点云
         m_pub_pc_removed_pt = nh.advertise<sensor_msgs::PointCloud2>( "/laser_remove_points", 10000 );
 
-        m_pub_pc_livox_corners = nh.advertise<sensor_msgs::PointCloud2>( "/pc2_corners", 10000 );
-        m_pub_pc_livox_surface = nh.advertise<sensor_msgs::PointCloud2>( "/pc2_surface", 10000 );
-        m_pub_pc_livox_full = nh.advertise<sensor_msgs::PointCloud2>( "/pc2_full", 10000 );
+        m_pub_pc_livox_corners = nh.advertise<sensor_msgs::PointCloud2>( "/pc2_corners", 10000 ); // 角点特征点
+        m_pub_pc_livox_surface = nh.advertise<sensor_msgs::PointCloud2>( "/pc2_surface", 10000 );  // 平面特征点
+        m_pub_pc_livox_full = nh.advertise<sensor_msgs::PointCloud2>( "/pc2_full", 10000 ); // 所有经过筛选后的好点
 
         m_voxel_filter_for_surface.setLeafSize( m_plane_resolution / 2, m_plane_resolution / 2, m_plane_resolution / 2 );
         m_voxel_filter_for_corner.setLeafSize( m_line_resolution, m_line_resolution, m_line_resolution );
@@ -239,8 +245,10 @@ class Laser_feature
         cloud_out.is_dense = true;
     }
 
+    // 雷达数据处理
     void laserCloudHandler( const sensor_msgs::PointCloud2ConstPtr &laserCloudMsg, const std::string & topic_name )
     {
+        // 支持多个雷达设备同时扫描
         std::unique_lock<std::mutex> lock(m_mutex_lock_handler);
         int current_lidar_index = 0;
         for(int i = 0; i< m_maximum_input_lidar_pointcloud; i++)
@@ -256,6 +264,7 @@ class Laser_feature
 
         std::vector<pcl::PointCloud<PointType>> laserCloudScans( m_laser_scan_number );
 
+        // 积累20帧数据后再处理
         if ( !m_para_systemInited )
         {
             m_para_system_init_count++;
@@ -268,8 +277,8 @@ class Laser_feature
                 return;
         }
 
-        std::vector<int> scanStartInd( 1000, 0 );
-        std::vector<int> scanEndInd( 1000, 0 );
+        std::vector<int> scanStartInd( 1000, 0 );  // 起始位置
+        std::vector<int> scanEndInd( 1000, 0 );   // 终止位置 
 
         pcl::PointCloud<pcl::PointXYZI> laserCloudIn;
         pcl::fromROSMsg( *laserCloudMsg, laserCloudIn );
@@ -277,12 +286,12 @@ class Laser_feature
 
         m_file_logger.printf( " Time: %.5f, num_raw: %d, num_filted: %d\r\n", laserCloudMsg->header.stamp.toSec(), raw_pts_num, laserCloudIn.size() );
 
-        size_t cloudSize = laserCloudIn.points.size();
+        size_t cloudSize = laserCloudIn.points.size(); // 点云的点数
 
-        if ( m_lidar_type ) // Livox scans
+        if ( m_lidar_type ) // Livox scans 如果是Livox雷达
         {
-
-            laserCloudScans = m_livox.extract_laser_features( laserCloudIn, laserCloudMsg->header.stamp.toSec() );
+            // 提取livox激光点云的边界和平面特征，并移除坏点
+            laserCloudScans = m_livox.extract_laser_features( laserCloudIn, laserCloudMsg->header.stamp.toSec() ); // 大小为扫描线数的向量
 
             if ( laserCloudScans.size() <= 5 ) // less than 5 scan
             {
@@ -291,6 +300,7 @@ class Laser_feature
 
             m_laser_scan_number = laserCloudScans.size() * 1.0;
 
+            // 重新规划容器的大小
             scanStartInd.resize( m_laser_scan_number );
             scanEndInd.resize( m_laser_scan_number );
             std::fill( scanStartInd.begin(), scanStartInd.end(), 0 );
@@ -301,8 +311,8 @@ class Laser_feature
                 /********************************************
                 *    Feature extraction for livox lidar     *
                 ********************************************/
-
-                int piece_wise = m_piecewise_number;
+               
+                int piece_wise = m_piecewise_number; // 将一个scan分成3段，以减少运动模糊
                 if(m_if_motion_deblur)
                 {
                     piece_wise = 1;
@@ -310,21 +320,24 @@ class Laser_feature
                 vector<float> piece_wise_start( piece_wise );
                 vector<float> piece_wise_end( piece_wise );
 
+                // 将一个scan分段
                 for ( int i = 0; i < piece_wise; i++ )
                 {
                     int start_scans, end_scans;
 
-                    start_scans = int( ( m_laser_scan_number * ( i ) ) / piece_wise );
-                    end_scans = int( ( m_laser_scan_number * ( i + 1 ) ) / piece_wise ) - 1;
+                    start_scans = int( ( m_laser_scan_number * ( i ) ) / piece_wise ); // 从半片花瓣（一个scan）的0,1/3,2/3开始，将一个scan分成3段
+                    end_scans = int( ( m_laser_scan_number * ( i + 1 ) ) / piece_wise ) - 1; // 在半片花瓣（一个scan）的1/3,2/3,3/3处结束
 
                     int end_idx = laserCloudScans[ end_scans ].size() - 1;
                     piece_wise_start[ i ] = ( ( float ) m_livox.find_pt_info( laserCloudScans[ start_scans ].points[ 0 ] )->idx ) / m_livox.m_pts_info_vec.size();
                     piece_wise_end[ i ] = ( ( float ) m_livox.find_pt_info( laserCloudScans[ end_scans ].points[ end_idx ] )->idx ) / m_livox.m_pts_info_vec.size();
-                }
-
+                } // 分段然后呢？
+                // 获得livox_corners（角点）, livox_surface（平面）, livox_full（好点）特征点
+                
                 for ( int i = 0; i < piece_wise; i++ )
                 {
-                  pcl::PointCloud<PointType>::Ptr livox_corners( new pcl::PointCloud<PointType>() ),
+                  pcl::PointCloud<PointType>::Ptr 
+                        livox_corners( new pcl::PointCloud<PointType>() ),
                         livox_surface( new pcl::PointCloud<PointType>() ),
                         livox_full( new pcl::PointCloud<PointType>() );
                     m_livox.get_features( *livox_corners, *livox_surface, *livox_full, piece_wise_start[ i ], piece_wise_end[ i ] );
@@ -334,8 +347,8 @@ class Laser_feature
                     
                 }
 
-                //if(1)
-
+                 
+                // 分段发布特征点
                 for ( int i = 0; i < piece_wise; i++ )
                 {
 
@@ -349,7 +362,7 @@ class Laser_feature
                         {
                             return;
                         }
-
+                        // 将所有雷达的特征点整合到一起
                         for ( int ii = 0; ii < m_maximum_input_lidar_pointcloud; ii++ )
                         {
                             *livox_full += m_map_pointcloud_full_vec_vec[ ii ][ i ];
@@ -357,7 +370,7 @@ class Laser_feature
                             *livox_corners += m_map_pointcloud_corner_vec_vec[ ii ][ i ];
                         }
                     }
-                    else
+                    else // 只发布当前雷达的特征点
                     {
                         *livox_full = m_map_pointcloud_full_vec_vec[ current_lidar_index ][ i ];
                         *livox_surface = m_map_pointcloud_surface_vec_vec[ current_lidar_index ][ i ];
@@ -528,10 +541,11 @@ class Laser_feature
             float diffY = laserCloud->points[ i - 5 ].y + laserCloud->points[ i - 4 ].y + laserCloud->points[ i - 3 ].y + laserCloud->points[ i - 2 ].y + laserCloud->points[ i - 1 ].y - 10 * laserCloud->points[ i ].y + laserCloud->points[ i + 1 ].y + laserCloud->points[ i + 2 ].y + laserCloud->points[ i + 3 ].y + laserCloud->points[ i + 4 ].y + laserCloud->points[ i + 5 ].y;
             float diffZ = laserCloud->points[ i - 5 ].z + laserCloud->points[ i - 4 ].z + laserCloud->points[ i - 3 ].z + laserCloud->points[ i - 2 ].z + laserCloud->points[ i - 1 ].z - 10 * laserCloud->points[ i ].z + laserCloud->points[ i + 1 ].z + laserCloud->points[ i + 2 ].z + laserCloud->points[ i + 3 ].z + laserCloud->points[ i + 4 ].z + laserCloud->points[ i + 5 ].z;
             float diff = diffX * diffX + diffY * diffY + diffZ * diffZ;
-            m_pc_curvature[ i ] = diff;
-            m_pc_sort_idx[ i ] = i;
-            m_pc_neighbor_picked[ i ] = 0;
-            m_pc_cloud_label[ i ] = 0;
+            m_pc_curvature[ i ] = diff; // 每个点的曲率
+            m_pc_sort_idx[ i ] = i;  // 每个点在点云中的索引
+            m_pc_neighbor_picked[ i ] = 0; // 用于标记是否可作为特征点  下面就是改这个值的
+            m_pc_cloud_label[ i ] = 0;   // 用于标记特征点为边界线还是平面特征点
+            // 将：当前点可能被遮挡、后一点可能被遮挡、平面/直线与激光近似平行的点的 m_pc_neighbor_picked 变为1
             if ( 1 )
             {
                 if ( 1 )
@@ -620,7 +634,7 @@ class Laser_feature
 #endif
 
         //printf_line;
-
+        // ? 都发布了还要做什么？哦，上面计算了曲率，但没找到边缘和平面点
         pcl::PointCloud<PointType> cornerPointsSharp;
         pcl::PointCloud<PointType> cornerPointsLessSharp;
         pcl::PointCloud<PointType> surfPointsFlat;
@@ -631,7 +645,8 @@ class Laser_feature
         for ( int i = 0; i < m_laser_scan_number; i++ )
         {
             pcl::PointCloud<PointType>::Ptr surfPointsLessFlatScan( new pcl::PointCloud<PointType> );
-            // To ensure the distribution of features point, spilt each scan into 6 parts equally according to their curvature.
+            // To ensure the distribution of features point, spilt each scan into 6 parts equally according to their curvature. 
+            // 为了确保特征点的分布，根据曲率将每个scan分为6段，防止窝在一起
             for ( int j = 0; j < 6; j++ )
             {
                 //Starting of each sub-scan.
@@ -639,7 +654,7 @@ class Laser_feature
                 //Ending of each sub-scan.
                 int ep = ( scanStartInd[ i ] * ( 5 - j ) + scanEndInd[ i ] * ( j + 1 ) ) / 6 - 1;
 
-                //sort curvature
+                // 按曲率从小到大冒泡排序
                 for ( int k = sp + 1; k <= ep; k++ )
                 {
                     for ( int l = k; l >= sp + 1; l-- )
@@ -666,13 +681,13 @@ class Laser_feature
                         largestPickedNum++;
                         if ( largestPickedNum <= 20 )
                         {
-                            m_pc_cloud_label[ ind ] = 2; //2 -> the label sharpest points.
+                            m_pc_cloud_label[ ind ] = 2; //2 -> the label sharpest points. // 标记为曲率很大的点
                             cornerPointsSharp.push_back( laserCloud->points[ ind ] );
                             cornerPointsLessSharp.push_back( laserCloud->points[ ind ] );
                         }
                         else if ( largestPickedNum <= 200 )
                         {
-                            m_pc_cloud_label[ ind ] = 1; //1 -> the label of less sharpest points.
+                            m_pc_cloud_label[ ind ] = 1; //1 -> the label of less sharpest points.  // 标记为曲率比较大的点
                             cornerPointsLessSharp.push_back( laserCloud->points[ ind ] );
                         }
                         else
@@ -680,7 +695,7 @@ class Laser_feature
                             break;
                         }
 
-                        m_pc_neighbor_picked[ ind ] = 1;
+                        m_pc_neighbor_picked[ ind ] = 1; // 该点被选为特征点后，标记为不可用
 
                         float times = 100;
                         // delete 5 neighbor of sharpest points.
@@ -689,9 +704,9 @@ class Laser_feature
                             float diffX = laserCloud->points[ ind + l ].x - laserCloud->points[ ind + l - 1 ].x;
                             float diffY = laserCloud->points[ ind + l ].y - laserCloud->points[ ind + l - 1 ].y;
                             float diffZ = laserCloud->points[ ind + l ].z - laserCloud->points[ ind + l - 1 ].z;
-                            if ( diffX * diffX + diffY * diffY + diffZ * diffZ > 0.05 )
+                            if ( diffX * diffX + diffY * diffY + diffZ * diffZ > 0.05 ) // 相邻两点距离大于阈值，则不用标记
                             {
-                                break;
+                                break; // 否则标记为不可用特征点
                             }
 
                             m_pc_neighbor_picked[ ind + l ] = 1;
@@ -711,6 +726,7 @@ class Laser_feature
                     }
                 }
 
+                // 选取平面点，从每一段曲率最小（前端）开始查找，用于确定平面点
                 int smallestPickedNum = 0;
                 for ( int k = sp; k <= ep; k++ )
                 {
@@ -765,7 +781,7 @@ class Laser_feature
                         surfPointsLessFlatScan->push_back( laserCloud->points[ k ] );
                     }
                 }
-            }
+            } // 一个六等分段处理完毕
 
             // voxel filter for less sharp points.
             pcl::PointCloud<PointType> surfPointsLessFlatScanDS;
@@ -774,16 +790,15 @@ class Laser_feature
             m_voxel_filter_for_surface.filter( surfPointsLessFlatScanDS );
 
             surfPointsLessFlat += surfPointsLessFlatScanDS;
-        }
-
+        } // 一个scan处理完毕
         //printf_line;
         //printf_line;
         //printf( "sort q time %f \n", t_q_sort );
         //printf_line;
         sensor_msgs::PointCloud2 laserCloudOutMsg;
         pcl::toROSMsg( *laserCloud, laserCloudOutMsg );
-        laserCloudOutMsg.header.stamp = laserCloudMsg->header.stamp;
-        laserCloudOutMsg.header.frame_id = "camera_init";
+        laserCloudOutMsg.header.stamp = laserCloudMsg->header.stamp;  // frame_id - 坐标系    stamp - time
+        laserCloudOutMsg.header.frame_id = "camera_init";  
         m_pub_laser_pc.publish( laserCloudOutMsg );
 
         sensor_msgs::PointCloud2 cornerPointsSharpMsg;
@@ -810,7 +825,7 @@ class Laser_feature
         surfPointsLessFlat2.header.frame_id = "camera_init";
         m_pub_pc_surface_less_flat.publish( surfPointsLessFlat2 );
 
-        // pub each scam
+        // pub each scam // 发布每个scan
         if ( m_if_pub_each_line )
         {
             for ( int i = 0; i < m_laser_scan_number; i++ )
